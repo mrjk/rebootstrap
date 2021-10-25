@@ -22,292 +22,6 @@ CONF_GRUB_DEVICE=/dev/sda
 
 ######   DEPRECATED  # Libraries
 ######   DEPRECATED  # =================
-######   DEPRECATED  
-######   DEPRECATED  wrap_exec ()
-######   DEPRECATED  {
-######   DEPRECATED    _exec $@
-######   DEPRECATED  }
-######   DEPRECATED  
-######   DEPRECATED  
-######   DEPRECATED  load_conf ()
-######   DEPRECATED  {
-######   DEPRECATED    # Default vars
-######   DEPRECATED    DEFAULT_VG=vg_fast
-######   DEPRECATED    DEFAULT_FS=ext4
-######   DEPRECATED    DEFAULT_SIZE=10G
-######   DEPRECATED  
-######   DEPRECATED    # Global vars
-######   DEPRECATED    DEVICE_PREFIX=debian_red   ### DEPRECATRED
-######   DEPRECATED    FS_CHROOT=/mnt/${DEVICE_PREFIX}
-######   DEPRECATED  }
-######   DEPRECATED  
-######   DEPRECATED  
-######   DEPRECATED  LV_CONF1="
-######   DEPRECATED  /
-######   DEPRECATED  /boot,/dev/sda2,ext4
-######   DEPRECATED  /var,lvm,5g
-######   DEPRECATED  /var/lib,lvm,5G,ext4
-######   DEPRECATED  /var/log,lvm,2G
-######   DEPRECATED  /tmp/,lvm,1G
-######   DEPRECATED  swap,/dev/vg_fast/swap,2G
-######   DEPRECATED  "
-######   DEPRECATED  
-######   DEPRECATED  DEFAULT_PACKAGES_DEFAULT="
-######   DEPRECATED  acpi-support-base
-######   DEPRECATED  bridge-utils
-######   DEPRECATED  bzip2
-######   DEPRECATED  console-common
-######   DEPRECATED  console-data
-######   DEPRECATED  cryptsetup
-######   DEPRECATED  file
-######   DEPRECATED  grub-pc
-######   DEPRECATED  ifenslave
-######   DEPRECATED  initramfs-tools
-######   DEPRECATED  isc-dhcp-client
-######   DEPRECATED  locales
-######   DEPRECATED  lsb-release
-######   DEPRECATED  lsof
-######   DEPRECATED  lvm2
-######   DEPRECATED  mdadm
-######   DEPRECATED  most
-######   DEPRECATED  os-prober
-######   DEPRECATED  pciutils
-######   DEPRECATED  postfix
-######   DEPRECATED  resolvconf
-######   DEPRECATED  rsync
-######   DEPRECATED  screen
-######   DEPRECATED  ssh
-######   DEPRECATED  strace
-######   DEPRECATED  usbutils
-######   DEPRECATED  vim
-######   DEPRECATED  vlan
-######   DEPRECATED  w3m
-######   DEPRECATED  zsh
-######   DEPRECATED  "
-######   DEPRECATED  
-######   DEPRECATED  DEFAULT_PACKAGES_too_log="
-######   DEPRECATED  acpi-support-base
-######   DEPRECATED  bridge-utils
-######   DEPRECATED  bzip2
-######   DEPRECATED  ca-certificates
-######   DEPRECATED  console-setup
-######   DEPRECATED  console-common
-######   DEPRECATED  console-data
-######   DEPRECATED  coreutils
-######   DEPRECATED  cryptsetup
-######   DEPRECATED  curl
-######   DEPRECATED  file
-######   DEPRECATED  grub-pc
-######   DEPRECATED  ifenslave
-######   DEPRECATED  initramfs-tools
-######   DEPRECATED  isc-dhcp-client
-######   DEPRECATED  less
-######   DEPRECATED  locales
-######   DEPRECATED  lsb-release
-######   DEPRECATED  lsof
-######   DEPRECATED  lvm2
-######   DEPRECATED  mdadm
-######   DEPRECATED  most
-######   DEPRECATED  os-prober
-######   DEPRECATED  pciutils
-######   DEPRECATED  resolvconf
-######   DEPRECATED  rsync
-######   DEPRECATED  screen
-######   DEPRECATED  ssh
-######   DEPRECATED  strace
-######   DEPRECATED  usbutils
-######   DEPRECATED  vim
-######   DEPRECATED  vlan
-######   DEPRECATED  
-######   DEPRECATED  debootstrap
-######   DEPRECATED  diffutils
-######   DEPRECATED  dmidecode
-######   DEPRECATED  dnsutils
-######   DEPRECATED  grml-debootstrap
-######   DEPRECATED  htop
-######   DEPRECATED  psmisc
-######   DEPRECATED  sudo
-######   DEPRECATED  tree
-######   DEPRECATED  
-######   DEPRECATED  "
-######   DEPRECATED  
-######   DEPRECATED  DEFAULT_PACKAGES="
-######   DEPRECATED  ssh
-######   DEPRECATED  rsync
-######   DEPRECATED  vim
-######   DEPRECATED  tree
-######   DEPRECATED  psmisc
-######   DEPRECATED  lvm2
-######   DEPRECATED  mdadm
-######   DEPRECATED  ca-certificates
-######   DEPRECATED  console-setup
-######   DEPRECATED  console-common
-######   DEPRECATED  console-data
-######   DEPRECATED  locales
-######   DEPRECATED  "
-######   DEPRECATED  
-######   DEPRECATED  loop_over_cfg ()
-######   DEPRECATED  {
-######   DEPRECATED    local cmd=$1
-######   DEPRECATED    shift 1 || true
-######   DEPRECATED    local args=$@
-######   DEPRECATED    local config="$LV_CONF1"
-######   DEPRECATED  
-######   DEPRECATED    # Loop over entries
-######   DEPRECATED    while IFS=, read -r mount target size fs _ ; do
-######   DEPRECATED      [[ ! -z "$mount" ]] || continue
-######   DEPRECATED  
-######   DEPRECATED      local PREFIX=$DEVICE_PREFIX
-######   DEPRECATED      mount=${mount%/}
-######   DEPRECATED      mount=${mount:-/}
-######   DEPRECATED  
-######   DEPRECATED      # Check mount point
-######   DEPRECATED      local FS_MOUNT="${mount}"
-######   DEPRECATED      local FS_TYPE=${fs:-$DEFAULT_FS}
-######   DEPRECATED      local FS_MKCMD="mkfs.${FS_TYPE} -F "
-######   DEPRECATED      local CHROOT_MOUNT=""
-######   DEPRECATED      case "$mount" in 
-######   DEPRECATED        /*) 
-######   DEPRECATED          CHROOT_MOUNT="$FS_CHROOT$mount"
-######   DEPRECATED          ;;
-######   DEPRECATED        swap) 
-######   DEPRECATED          CHROOT_MOUNT=""
-######   DEPRECATED          FS_MOUNT=""
-######   DEPRECATED          FS_MKCMD="mkswap"
-######   DEPRECATED          ;;
-######   DEPRECATED      esac
-######   DEPRECATED  
-######   DEPRECATED      # Check size
-######   DEPRECATED      local DEVICE_SIZE=${size:-$DEFAULT_SIZE}
-######   DEPRECATED      case "$DEVICE_SIZE" in 
-######   DEPRECATED        mem) DEVICE_SIZE=$(free | awk '/Mem:/{ print $2 }') ;;
-######   DEPRECATED      esac
-######   DEPRECATED  
-######   DEPRECATED      # Determine device name
-######   DEPRECATED      if [[ "$mount" == "/" ]]; then
-######   DEPRECATED        DEVICE_NAME="root"
-######   DEPRECATED      else
-######   DEPRECATED        DEVICE_NAME="${mount#/}"
-######   DEPRECATED        DEVICE_NAME="${DEVICE_NAME//\//_}"
-######   DEPRECATED      fi
-######   DEPRECATED  
-######   DEPRECATED      # Determine device type
-######   DEPRECATED      DEVICE_NAME_PREFIXED="${DEVICE_PREFIX:+${DEVICE_PREFIX}_}$DEVICE_NAME"
-######   DEPRECATED      if [[ -b "$target" ]]; then
-######   DEPRECATED        DEVICE_TYPE=disk
-######   DEPRECATED        DEVICE_PATH="$target"
-######   DEPRECATED      else
-######   DEPRECATED        DEVICE_TYPE=lvm
-######   DEPRECATED        DEVICE_PATH="/dev/$DEFAULT_VG/$DEVICE_NAME_PREFIXED"
-######   DEPRECATED        DEVICE_VG=$DEFAULT_VG
-######   DEPRECATED        DEVICE_LV=$DEVICE_NAME_PREFIXED
-######   DEPRECATED      fi
-######   DEPRECATED  
-######   DEPRECATED  
-######   DEPRECATED      $cmd $args
-######   DEPRECATED  
-######   DEPRECATED    done <<<"$config"
-######   DEPRECATED  }
-######   DEPRECATED  
-######   DEPRECATED  
-######   DEPRECATED  # LVM management
-######   DEPRECATED  # =================
-######   DEPRECATED  get_all_volumes ()
-######   DEPRECATED  {
-######   DEPRECATED    local vg=$1
-######   DEPRECATED    local prefix=$2
-######   DEPRECATED      ls -1  /dev/vg_fast/ | grep $prefix | sed 's@/dev/@@'
-######   DEPRECATED  }
-######   DEPRECATED  
-######   DEPRECATED  show_lv ()
-######   DEPRECATED  {
-######   DEPRECATED    echo "  $DEVICE_PATH to $FS_TYPE with size $DEVICE_SIZE on $CHROOT_MOUNT"
-######   DEPRECATED  
-######   DEPRECATED  }
-######   DEPRECATED  
-######   DEPRECATED  create_volumes ()
-######   DEPRECATED  {
-######   DEPRECATED  
-######   DEPRECATED    local recap=$( 
-######   DEPRECATED      echo "This will create/reformat the following volumes:"
-######   DEPRECATED      loop_over_cfg show_lv $CONF_VG $CONF_DISK_PREFIX
-######   DEPRECATED      printf "\n"
-######   DEPRECATED    )
-######   DEPRECATED    ask_to_continue "$recap"
-######   DEPRECATED  
-######   DEPRECATED    loop_over_cfg create_volume
-######   DEPRECATED  }
-######   DEPRECATED  
-######   DEPRECATED  create_volume ()
-######   DEPRECATED  {
-######   DEPRECATED    if ! [[ -b "$DEVICE_PATH" ]]; then
-######   DEPRECATED      if [[ "$DEVICE_TYPE" == lvm  ]]; then
-######   DEPRECATED        wrap_exec lvcreate --yes -n "${DEVICE_LV}" -L $DEVICE_SIZE $DEVICE_VG
-######   DEPRECATED      fi
-######   DEPRECATED    fi
-######   DEPRECATED    wrap_exec $FS_MKCMD $DEVICE_PATH
-######   DEPRECATED  
-######   DEPRECATED  }
-
-
-######   DEPRECATED # Mounts
-######   DEPRECATED # =================
-######   DEPRECATED 
-######   DEPRECATED umount_parts ()
-######   DEPRECATED {
-######   DEPRECATED   wrap_exec umount --recursive $FS_CHROOT || true
-######   DEPRECATED }
-######   DEPRECATED 
-######   DEPRECATED mount_parts ()
-######   DEPRECATED {
-######   DEPRECATED   loop_over_cfg mount_part
-######   DEPRECATED 
-######   DEPRECATED }
-######   DEPRECATED 
-######   DEPRECATED mount_part ()
-######   DEPRECATED {
-######   DEPRECATED   if [[ ! -z "$CHROOT_MOUNT" ]]; then
-######   DEPRECATED       wrap_exec mkdir -p $CHROOT_MOUNT
-######   DEPRECATED       mountpoint -q $CHROOT_MOUNT || wrap_exec mount $DEVICE_PATH $CHROOT_MOUNT
-######   DEPRECATED   fi
-######   DEPRECATED }
-######   DEPRECATED umount_proc ()
-######   DEPRECATED {
-######   DEPRECATED   api_umount_sys $@
-######   DEPRECATED }
-######   DEPRECATED 
-######   DEPRECATED mount_proc ()
-######   DEPRECATED {
-######   DEPRECATED   api_mount_sys $@
-######   DEPRECATED 
-######   DEPRECATED }
-######   DEPRECATED 
-######   DEPRECATED 
-######   DEPRECATED # Debootstrap
-######   DEPRECATED # =================
-######   DEPRECATED 
-######   DEPRECATED # os_rm ()
-######   DEPRECATED # {
-######   DEPRECATED #   # Sanity check
-######   DEPRECATED #   if [[ -z "${FS_CHROOT:-}" ]]; then
-######   DEPRECATED #     echo "Big error here !"
-######   DEPRECATED #     return 2
-######   DEPRECATED #   fi
-######   DEPRECATED #   ask_to_continue "This will do a rm -rf on $FS_CHROOT/*"
-######   DEPRECATED # 
-######   DEPRECATED #   wrap_exec rm -rf ${FS_CHROOT:-BUG}/* || true
-######   DEPRECATED #   echo "System has been removed"
-######   DEPRECATED #     
-######   DEPRECATED # }
-######   DEPRECATED 
-######   DEPRECATED # os_install ()
-######   DEPRECATED # {
-######   DEPRECATED #   wrap_exec mkdir -p /tmp/debootstrap
-######   DEPRECATED #   wrap_exec time debootstrap --verbose --cache-dir=/tmp/debootstrap $CONF_OS $FS_CHROOT http://deb.debian.org/debian/ || {
-######   DEPRECATED #     echo "Debootstrap '$CONF_OS' failed at some point ... Please check logs in: $FS_CHROOT/debootstrap/debootstrap.log"
-######   DEPRECATED #     tail $FS_CHROOT/debootstrap/debootstrap.log
-######   DEPRECATED #   }
-######   DEPRECATED # }
 
 os_install_grml ()
 {   
@@ -520,16 +234,19 @@ api_volume_create ()
   local vg_name=${relative%/*}
 
   if [[ "$lv_name" == "$vg_name" ]]; then
-    _log INFO "Ignore creation of non LVM volumes: /dev/$relative"
+    _log INFO "Ignore creation of non LVM volumes: /dev/$relative ($FS_CHROOT$mount)"
     return
-  else
-    # This is some kind of lvm
-    if [[ "$size" != "-" ]]; then
-      if vgs $vg_name >& /dev/null; then
+  fi
+
+  # This is some kind of lvm
+  if [[ "$size" != "-" ]]; then
+    vgs $vg_name >& /dev/null || {
+      _log ERROR "Can't find volume group: /dev/$vg_name"
+      return 1
+    }
+
+    if ! lvs "$vg_name/$lv_name" >& /dev/null; then
       _exec lvcreate --yes -n "${lv_name}" -L $size $vg_name || true
-      else
-        _log WARN "Can't find volume group: /dev/$vg_name"
-      fi
     fi
   fi
 
@@ -540,12 +257,16 @@ api_volume_format ()
 
   case "$fs" in 
     ext4) 
-      _exec mkfs.ext4 -F "$source"
+      _exec mkfs.ext4 -F "$source" || exit 1
+      local rc=$?
+      echo "FAIILLLLL => $rc"
       ;;
     swap) 
       _exec mkswap "$source"
       ;;
-    -):;;
+    -)
+      _log INFO "Do not format $source"
+      ;;
     *)
       _log ERROR "Unsupported filesystem format: $mount $source $fs $size"
       ;;
@@ -599,6 +320,21 @@ api_mount_volume ()
 #  _log INFO "Special filesystems mounted in $FS_CHROOT (/dev,/sys/,proc)"
 #}
 
+api_mount_sys_test ()
+{
+  local chroot=$FS_CHROOT
+
+  _exec mount proc "$chroot/proc" -t proc -o nosuid,noexec,nodev &&
+  _exec mount sys "$chroot/sys" -t sysfs -o nosuid,noexec,nodev,ro &&
+  # ignore_error chroot_maybe_add_mount "[[ -d '$chroot/sys/firmware/efi/efivars' ]]" \
+  #     efivarfs "$chroot/sys/firmware/efi/efivars" -t efivarfs -o nosuid,noexec,nodev &&
+  _exec mount udev "$chroot/dev" -t devtmpfs -o mode=0755,nosuid &&
+  _exec mount devpts "$chroot/dev/pts" -t devpts -o mode=0620,gid=5,nosuid,noexec &&
+  _exec mount shm "$chroot/dev/shm" -t tmpfs -o mode=1777,nosuid,nodev &&
+  _exec mount /run "$chroot/run" --bind &&
+  _exec mount tmp "$chroot/tmp" -t tmpfs -o mode=1777,strictatime,nodev,nosuid
+}
+
 api_mount_sys ()
 {
   mountpoint -q "$FS_CHROOT/proc" || {
@@ -607,14 +343,16 @@ api_mount_sys ()
   }
 
   mountpoint -q "$FS_CHROOT/sys" || {
+    _exec mkdir -p "$FS_CHROOT/sys"
     _exec mount --make-rslave --rbind /sys "$FS_CHROOT/sys"
   }
   mountpoint -q "$FS_CHROOT/dev" || {
+    _exec mkdir -p "$FS_CHROOT/dev"
     _exec mount --make-rslave --rbind /dev "$FS_CHROOT/dev"
   }
-  mountpoint -q "$FS_CHROOT/run" || {
-    _exec mount --make-rslave --rbind /run "$FS_CHROOT/run"
-  }
+  #mountpoint -q "$FS_CHROOT/run" || {
+  #  _exec mount --make-rslave --rbind /run "$FS_CHROOT/run"
+  #}
 
   #mountpoint -q "$FS_CHROOT/dev/pts" || {
   #  _exec mkdir -p "$FS_CHROOT/dev/pts"
@@ -645,14 +383,20 @@ api_umount_all ()
 {
   local opts=${@-}
   for i in $( mount | awk  '{ print $3 }' | grep "^$FS_CHROOT" | tac); do
-    _exec umount $opts "$FS_CHROOT"
+    # sleep 0.5 #  Do we have a timing issue here ?
+    if _exec umount $opts "$i"; then
+      _log INFO "Succesfully unmounted: $i"
+    else
+      _log ERROR "Failed to unmount: $i"
+      return
+    fi
   done
 
   # api_umount_sys
   # ! mountpoint -q "$FS_CHROOT" || {
   #   _exec umount -R $opts "$FS_CHROOT"
   # }
-  _log INFO "All filesystems unmounted in $FS_CHROOT"
+  # _log INFO "All filesystems unmounted in $FS_CHROOT"
 }
 
 # API Host
@@ -718,9 +462,10 @@ api_host_fetch_system ()
 # API OS
 # =================
 
+
 api_os_chroot ()
 {
-  local cmd=${@:-/bin/bash}
+  local cmd=${@:-/bin/bash --login}
   # _log INFO "Chrooting shell into $FS_CHROOT: $cmd"
   _exec chroot $FS_CHROOT $cmd
 }
@@ -737,7 +482,6 @@ api_os_rm ()
     return 1
   }
 
-  ask_to_continue "This will do a rm -rf on $FS_CHROOT/*"
   _exec rm -rf ${FS_CHROOT:-BUG}/* || true
   _log INFO "System has been removed"
     
@@ -760,6 +504,7 @@ api_os_install_debootstrap ()
 
   # Debootstrap
   _exec mkdir -p /tmp/debootstrap
+  tree -L 2 $FS_CHROOT
   time _exec debootstrap \
     --verbose \
     --cache-dir=/tmp/debootstrap \
@@ -787,6 +532,9 @@ api_os_preconfigure ()
   _log INFO "Configure $outfile"
   if ! ${RESTRAP_DRY:-false}; then
     api_os__gen_fstab > "$outfile"
+    for i in $( cat "$outfile"  | grep -Ev '^ *#' | awk '{ print $2}' | grep -v '^/$' ) ; do
+      [[ -d "$FS_CHROOT$i" ]] || _exec mkdir -p $FS_CHROOT$i
+    done
   fi
 
   # Configure apt
@@ -818,19 +566,34 @@ EOF
   fi
   api_os_chroot locale-gen
 
+  # Import resolvers
+  infile=/etc/systemd/resolved.conf.d
+  _log INFO "Import systemd resolved config"
+  if [[ -d "$infile/" ]]; then
+    _exec cp -R $infile/. $FS_CHROOT$infile
+  fi
+
+  # Import networkd
+  infile=/etc/systemd/network
+  _log INFO "Import systemd resolved config"
+  if [[ -d "$infile/" ]]; then
+    _exec cp -R $infile/. $FS_CHROOT$infile
+    api_os_chroot systemctl enable systemd-networkd
+  fi
+
 
   # Import other convenients stuffs
   _log INFO "Import /etc/ssh"
   _exec cp -a "/etc/ssh" "$FS_CHROOT/etc/ssh" || \
-    _log_warn "Import failed (rc=$?)"
+    _log WARN "Import failed (rc=$?)"
 
   _log INFO "Import /etc/vim/vimrc.local"
   _exec cp "/etc/vim/vimrc.local" "$FS_CHROOT/etc/vim/vimrc.local" || \
-    _log_warn "Import failed (rc=$?)"
+    _log WARN "Import failed (rc=$?)"
 
   _log INFO "Import /etc/gitconfig"
   _exec cp "/etc/gitconfig" "$FS_CHROOT/etc/gitconfig" || \
-    _log_warn "Import failed (rc=$?)"
+    _log WARN "Import failed (rc=$?)"
 
   # Import home root
   _log INFO "Import root directory (partial import)"
@@ -838,6 +601,14 @@ EOF
 		--include={.config,.profile,.bashrc,.vimrc,.ssh} \
 		--exclude='.*' \
 		/root/ $FS_CHROOT/root
+
+  # Save the date
+  outfile=$FS_CHROOT/root/INFO
+  _log INFO "Configure $outfile"
+  if ! ${RESTRAP_DRY:-false}; then
+    echo "INSTALL_DATE=$(date --iso-8601=seconds)" > $outfile
+  fi
+  
 
 }
 
@@ -864,10 +635,12 @@ api_os_bootloader ()
   local disk=${1:-$DISK_MBR}
   local autoboot=false
 
+  # Install grub and eventually mbr/efi
   api_os_chroot grub-mkdevicemap
   if [[ ! -z "${disk:-}" ]]; then
     if $autoboot ; then
       # TOFIX: Enable this to next boot on this distro
+      _log INFO "Next boot: Target OS /!\\"
       api_os_chroot grub-install $disk
     fi
   fi
@@ -875,44 +648,57 @@ api_os_bootloader ()
 
   # Exec local update to detect this new OS
   _exec grub-mkdevicemap
-  _exec update-grub
-}
-
-api_os_bootloader_from_host ()
-{
-  local disk=${1:-$DISK_MBR}
-
-  loop_over_cfg_v2 api_mount_volume
-  api_mount_sys
-  api_os_bootloader $disk
-  api_umount_all
-
-  # Run from host
-  _exec grub-mkdevicemap
-  _exec update-grub
-}
-
-api_host_bootloader ()
-{
-  local disk=${1:-$DISK_MBR}
-  if [[ ! -z "${disk:-}" ]]; then
-    _exec grub-mkdevicemap
+  if $autoboot ; then
+    _log INFO "Next boot: Current OS"
     _exec grub-install $disk
   fi
   _exec update-grub
+  _log INFO "User import finished"
 }
+
+#api_os_bootloader_from_host ()
+#{
+#  local disk=${1:-$DISK_MBR}
+#
+#  loop_over_cfg_v2 api_mount_volume
+#  api_mount_sys
+#  api_os_bootloader $disk
+#  api_umount_all
+#
+#  # Run from host
+#  _exec grub-mkdevicemap
+#  _exec update-grub
+#}
+
+# api_host_bootloader ()
+# {
+#   local disk=${1:-$DISK_MBR}
+#   if [[ ! -z "${disk:-}" ]]; then
+#     _exec grub-mkdevicemap
+#     _exec grub-install $disk
+#   fi
+#   _exec update-grub
+# }
 
 api_os_import ()
 {
   _log INFO "Import User settings"
+  color=green
 
-  _exec cp "/etc/profile.d/bash_tweaks.sh" "$FS_CHROOT/etc/profile.d/bash_tweaks.sh"
-  _exec cp "/etc/profile.d/zz_init.sh" "$FS_CHROOT/etc/profile.d/zz_init.sh"
+  _exec cp "/etc/profile.d/bash_tweaks.sh" "$FS_CHROOT/etc/profile.d/bash_tweaks.sh" || true
+  _exec cp "/etc/profile.d/zz_init.sh" "$FS_CHROOT/etc/profile.d/zz_init.sh" || true
+  if ! ${RESTRAP_DRY:-false}; then
+    echo "export PS1_HOST_COLOR=$color" > "$FS_CHROOT/etc/profile.d/00_config.sh"
+  fi
+
+  _log INFO "User import finished"
+
 }
 
 # CLI API
 # =================
 
+# Specialized commands
 
 cli__create ()
 {
@@ -920,10 +706,37 @@ cli__create ()
   loop_over_cfg_v2 api_volume_create
 }
 
+
+_cli__volumes_list ()
+{
+  case "$fs" in
+    ext*)
+      echo "  $source $FS_CHROOT$mount $fs $size"
+    ;;
+  swap)
+      echo "  $source swap $fs $size"
+    ;;
+  esac
+}
+
 cli__format ()
 {
   : "Format volumes"
-  loop_over_cfg_v2 api_volume_format
+
+  local recap=$( 
+    _log WARN "This will create and reformat the following volumes. Are you sure?"
+    {
+      echo "Device Target Format? LVCreate?"
+      loop_over_cfg_v2 _cli__volumes_list 
+    }| column -t
+    printf "\n"
+  )
+  ask_to_continue "$recap" || return
+
+  loop_over_cfg_v2 api_volume_format || {
+    _log HINT "If you have issues with busy devices, try: findmnt -o TARGET,PROPAGATION,FSTYPE"
+    return 1
+  }
 }
 
 cli__mount ()
@@ -932,17 +745,51 @@ cli__mount ()
   loop_over_cfg_v2 api_mount_volume
 }
 
-cli__mount_all ()
-{
-  : "Mount all volumes and special fs"
-  loop_over_cfg_v2 api_mount_volume
-  api_mount_sys
-}
 
 cli__umount_all ()
 {
   : "Umount all volumes and special fs"
   api_umount_all
+}
+
+
+cli__chroot ()
+{
+  : "Chroot into the target"
+  cli__mount_all
+  api_os_chroot $@
+}
+
+cli__rm ()
+{
+  : "Remove all files of the target, without umounts"
+  ask_to_continue "WARN    : This will 'rm -rf $FS_CHROOT', are you sure?" || return
+
+  api_umount_sys
+  loop_over_cfg_v2 api_mount_volume
+  api_os_rm
+  tree $FS_CHROOT
+}
+
+# Workflow commands
+
+cli__install_all ()
+{
+  : "Clean everything and install all from fresh start"
+  cli__umount_all
+  cli__create
+  # Format is quite broken due to volume locks .... 
+  # cli__format 
+  cli__rm
+  cli__debootstrap
+  cli__configure
+}
+
+cli__mount_all ()
+{
+  : "Mount all volumes and special fs"
+  loop_over_cfg_v2 api_mount_volume
+  api_mount_sys
 }
 
 cli__debootstrap ()
@@ -963,44 +810,18 @@ cli__configure ()
   api_os_import
 }
 
-cli__chroot ()
-{
-  : "Chroot into the target"
-  cli__mount_all
-  api_os_chroot $@
-}
-
-cli__rm ()
-{
-  : "Remove all files of the target, without umounts"
-  api_umount_sys
-  loop_over_cfg_v2 api_mount_volume
-  api_os_rm
-  tree $FS_CHROOT
-}
-
-cli__install_all ()
-{
-  : "Clean everything and install all from fresh start"
-  cli__umount_all
-  cli__create
-  cli__format
-  cli__debootstrap
-  cli__configure
-}
-
-cli__boot_target ()
-{
-  : "Install mbr to boot on target"
-
-}
-
-cli__boot_local ()
-{
-  : "Install mbr to boot on local"
-  local device=$1
-  grub-install $device
-}
+#cli__boot_target ()
+#{
+#  : "Install mbr to boot on target"
+#
+#}
+#
+#cli__boot_local ()
+#{
+#  : "Install mbr to boot on local"
+#  local device=$1
+#  grub-install $device
+#}
 
 cli__help ()
 {
@@ -1020,7 +841,7 @@ cli__help ()
 
 cli__devel ()
 {
-  api_os_bootloader_from_host
+  api_os_bootloader
 }
 
 
@@ -1067,7 +888,8 @@ main_app ()
   local args=${@:-}
 
   # Load configurations
-  for conf in configs/{common.sh,$target_name.sh}; do
+  # TOFIX => hard codede path !
+  for conf in /root/prj/rebootstrap/configs/{common.sh,$target_name.sh}; do
     if [[ -f "$conf" ]]; then
       . "$conf"
     else
