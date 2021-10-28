@@ -34,7 +34,6 @@ CONF_GRUB_DEVICE=/dev/sda
 # CONF_GRUB_DEVICE=/dev/sdb
 CONF_DATE_CODE=$(date +%d/%m/%Y)
 
-######   DEPRECATED  # Libraries
 ######   DEPRECATED  # =================
 
 os_install_grml ()
@@ -46,10 +45,10 @@ os_install_grml ()
   wrap_exec chmod 1777 $FS_CHROOT/tmp $FS_CHROOT/var/tmp
 
   # with grml
-  wrap_exec time grml-debootstrap \
+  wrap_exec grml-debootstrap \
     --debopt --cache-dir=/tmp/debootstrap \
     --target $FS_CHROOT \
-    --release $CONF_OS \
+    --release $_os_release \
     --grub $CONF_GRUB_DEVICE \
     --defaultinterfaces \
     --contrib \
@@ -63,109 +62,6 @@ os_install_grml ()
     return 1
   }
 }
-
-# os_config_fstab ()
-# {
-#   mount | grep $FS_CHROOT | grep '^/dev/' | \
-#     awk '{ print $1 "\t" $3 "\t" $5 "\t"  $6 "\t0\t0" }' | \
-#     sed "s@$FS_CHROOT/*@/@g" | sed "s/[()]//g" | \
-#     sed "1s/\t0\t0/\t0\t1/" |
-#     sed "s/,*stripe=256//" |
-#     column -t > $FS_CHROOT/etc/fstab
-# }
-
-######  os_configure_old ()
-######  {
-######  
-######    # Sanity check
-######    if [[ -z "${FS_CHROOT:-}" ]]; then
-######      echo "Big error here !"
-######      return 2
-######    fi
-######  
-######    set -x
-######    mkdir -p $FS_CHROOT/etc/
-######  
-######    echo "nameserver 8.8.8.8" > $FS_CHROOT/etc/resolv.conf
-######  
-######    echo $HOSTNAME > $FS_CHROOT/etc/hostname
-######    echo -e "127.0.1.1\t$HOSTNAME" > $FS_CHROOT/etc/hosts
-######  
-######    local def_interface=$(ip route | sed -n '1{s/.* dev //;s/ .*//;p}')
-######    mkdir -p $FS_CHROOT/etc/network/interfaces.d/
-######    echo -e "auto $def_interface\niface $def_interface inet dhcp\n" > $FS_CHROOT/etc/network/interfaces.d/$def_interface
-######  
-######    # Chrooted version
-######    # cat /proc/self/mounts | grep '^/dev/' > /etc/fstab
-######  
-######    # External version
-######  
-######  
-######  #    mkdir -p $FS_CHROOT/etc/apt/
-######  #    cat > $FS_CHROOT/etc/apt/sources.list <<EOF
-######  #  deb http://ftp.ca.debian.org/debian/ $CONF_OS main contrib non-free
-######  #  deb-src http://ftp.ca.debian.org/debian/ $CONF_OS main contrib non-free
-######  #  
-######  #  deb http://security.debian.org/debian-security $CONF_OS/updates main
-######  #  deb-src http://security.debian.org/debian-security $CONF_OS/updates main
-######  #  
-######  #  # $CONF_OS-updates, previously known as 'volatile'
-######  #  deb http://ftp.ca.debian.org/debian/ $CONF_OS-updates main
-######  #  deb-src http://ftp.ca.debian.org/debian/ $CONF_OS-updates main
-######  #  
-######  #  # This system was installed using small removable media
-######  #  # (e.g. netinst, live or single CD). The matching "deb cdrom"
-######  #  # entries were disabled at the end of the installation process.
-######  #  # For information about how to configure apt package sources,
-######  #  # see the sources.list(5) manual.
-######  #  
-######  #  deb http://deb.debian.org/debian $CONF_OS-backports main
-######  #  EOF
-######  #  
-######  #  set +x
-######  #  echo "Configured into root: $FS_CHROOT"
-######  
-######    return
-######  
-######  
-######  
-######    # v1 wrap_exec grml-debootstrap --release bullseye  --target /mnt/debian_red --grub /dev/sda --defaultinterfaces --contrib --non-free --sshcopyid --debopt --cache-dir=/tmp/debootstrap/  -v --nodebootstrap
-######    wrap_exec grml-debootstrap \
-######      --debopt --cache-dir=/tmp/debootstrap/ \
-######      --target /mnt/debian_red \
-######      --release bullseye \
-######      --grub /dev/sda \
-######      --defaultinterfaces \
-######      --contrib \
-######      --non-free \
-######      -v \
-######      --force \
-######      --sshcopyid \
-######      --packages <(echo "$DEFAULT_PACKAGES") \
-######      --password "qwerty78"
-######  
-######      # --nodebootstrap \
-######  
-######    # --sshcopyauth
-######  }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # Libraries
@@ -190,6 +86,25 @@ _exec ()
   fi
 
 }
+
+_dump_vars ()
+{
+  declare -p | grep ' .. _'
+}
+
+_make_default ()
+{
+  local pattern=$1
+  local value=$2
+  local default=${3-}
+
+  if [[ "$value" == "$pattern" ]]; then
+    echo "$default"
+  else
+    echo "$value"
+  fi
+}
+
 
 check_bin ()
 {
@@ -217,16 +132,139 @@ ask_to_continue ()
 # Core app
 # =================
 
-loop_over_cfg_v2 ()
+###  loop_over_cfg_v2 ()
+###  {
+###    echo "DEPRECATRED loop_over_cfg_v2 => loop_over_partitions"
+###    exit 1
+###    local args=$@
+###  
+###    # Loop over entries
+###    while  read -r mount source fs size _ ; do
+###  
+###      [[ ! -z "$mount" ]] || continue
+###      [[ ! "$mount" =~ ^' '*'#' ]] || continue
+###  
+###      # $cmd $args
+###      for cmd in $args; do
+###        $cmd
+###      done
+###  
+###    done <<<"$config"
+###  }
+
+loop_over_os_v3 ()
 {
-  local args=$@
-  local config="$DISK_MAPPING"
+  local args=${@:-true}
+  local config=${LOOP_CONFIG:-$OS_MAP}
+  local cmd=
 
   # Loop over entries
-  while  read -r mount source fs size _ ; do
+  while  read -r target os grub vg_target _ ; do
 
+    # Validate line
+    [[ ! -z "$target" ]] || continue
+    [[ ! "$target" =~ ^' '*'#' ]] || continue
+    _os_name=$target
+    _os_target=${DEFAULT_PREFIX}_${target}
+    _os_release=$(_make_default - "$os" "$DEFAULT_OS")
+    _os_vg=$(_make_default - "$vg_target" "$DEFAULT_VG")
+
+    # Generate data
+    _os_grub=$(_make_default - "$grub" "$DEFAULT_GRUB")
+    _os_grub_boot=-
+    _os_grub_device=-
+    _os_grub_partition=-
+    case "$_os_grub" in 
+      *,*)
+        _os_grub_boot=${_os_grub%%,*}
+        _os_grub_partition=${_os_grub##*,}
+        _os_grub_device=${_os_grub_partition%%[0-9]}
+        ;;
+      *)
+        _os_grub_boot=${_os_grub}
+        ;;
+    esac
+    if [[ "$_os_grub_device" == "$_os_grub_partition" ]]; then
+      _os_grub_partition=-
+    fi
+
+    # $cmd $args
+    for cmd in $args; do
+      $cmd
+    done
+
+  done <<<"$config"
+
+}
+
+loop_over_partitions ()
+{
+  local args=${@:-true}
+  local config=${LOOP_CONFIG:-$PART_MAP}
+  local cmd=
+
+  # Loop over entries
+  while  read -r mount device format size mount_opts _ ; do
+
+    # Validate line
     [[ ! -z "$mount" ]] || continue
     [[ ! "$mount" =~ ^' '*'#' ]] || continue
+    mount=${mount%/}
+    mount=${mount:-/}
+
+    # Assign default values
+    _part_mount=$mount
+    _part_device=$device
+    _part_format=$(_make_default "" "$format" "-")
+    _part_size=$(_make_default "" "$size" "-")
+    _part_mount_opts=$(_make_default "" "$mount_opts" "-")
+
+    # Guess informations
+    _part_mount_chroot="$FS_CHROOT$mount"
+    case "$mount" in
+      swap) _part_mount_chroot="";;
+      *): ;;
+    esac
+    _part_vg=-
+    _part_lv=-
+    local device_name=${mount//\//_}
+    device_name=${device_name#_}
+    device_name=${device_name:-root}
+    case "$device" in 
+      -)
+        _part_vg=$_os_vg
+        _part_lv="${_os_target}_${device_name}"
+        _part_device="/dev/$_os_vg/$_part_lv"
+        ;;
+      /dev/*/*|[^/][^/]*/*)
+        _part_vg=${device%%/*}
+        _part_lv=${device##*/}
+        _part_device="/dev/$_part_vg/${_os_target}_${_part_lv}"
+        ;;
+      /dev/*)
+        _part_device=$device
+        ;;
+      *)
+        if [[ -e "/dev/$device" ]]; then
+          _part_device="/dev/$device"
+        else
+          echo "UNSUPORTED PATTERN LVM"
+        fi
+        ;;
+    esac
+
+    if [[ "$mount" == "/boot" ]]; then
+      case $_os_grub_partition in
+        /dev/???[0-9])
+          _part_device=$_os_grub_partition
+          _part_lv=-
+          _part_vg=-
+          ;;
+        -)
+          _part_device="/dev/$_part_vg/${_part_lv}"
+          ;;
+      esac
+    fi
 
     # $cmd $args
     for cmd in $args; do
@@ -243,25 +281,22 @@ loop_over_cfg_v2 ()
 api_volume_create ()
 {
 
-  local relative=${source#/dev/}
-  local lv_name=${relative##*/}
-  local vg_name=${relative%/*}
-
-  if [[ "$lv_name" == "$vg_name" ]]; then
-    _log INFO "Ignore creation of non LVM volumes: /dev/$relative ($FS_CHROOT$mount)"
+  # This is some kind of lvm
+  if [[ "$_part_size" == "-" ]]; then
+    _log INFO "Skip creation of volume $_part_vg/${_part_lv}"
     return
   fi
 
-  # This is some kind of lvm
-  if [[ "$size" != "-" ]]; then
-    vgs $vg_name >& /dev/null || {
-      _log ERROR "Can't find volume group: /dev/$vg_name"
-      return 1
-    }
+  vgs $_part_vg >& /dev/null || {
+    _log ERROR "Can't find volume group: /dev/$_part_vg"
+    return 1
+  }
 
-    if ! lvs "$vg_name/$lv_name" >& /dev/null; then
-      _exec lvcreate --yes -n "${lv_name}" -L $size $vg_name || true
-    fi
+  if ! lvs "$_part_vg/$_part_lv" >& /dev/null; then
+    _log INFO "Create logical volume $_part_vg/${_part_lv} ($_part_size)"
+    _exec lvcreate --yes -n "${_part_lv}" -L $_part_size $_part_vg || true
+  else
+    _log INFO "Logical volume $_part_vg/${_part_lv} already exists"
   fi
 
 }
@@ -269,20 +304,23 @@ api_volume_create ()
 api_volume_format ()
 { 
 
-  case "$fs" in 
+  case "$_part_format" in 
     ext4) 
-      _exec mkfs.ext4 -F "$source" || exit 1
+      _exec mkfs.ext4 -F "$_part_device"
       local rc=$?
-      echo "FAIILLLLL => $rc"
+      [[ "$rc" -eq 0 ]] || {
+        echo "FAIILLLLL => $rc"
+        exit 1
+      }
       ;;
     swap) 
-      _exec mkswap "$source"
+      _exec mkswap "$_part_device"
       ;;
     -)
-      _log INFO "Do not format $source"
+      _log INFO "Do not format $_part_device"
       ;;
     *)
-      _log ERROR "Unsupported filesystem format: $mount $source $fs $size"
+      _log ERROR "Unsupported filesystem format: $_part_mount $_part_device $_part_format $_part_size"
       ;;
   esac
 }
@@ -293,18 +331,20 @@ api_volume_format ()
 
 api_mount_volume ()
 {
+  local mp="${FS_CHROOT}${_part_mount}"
 
-  case "$fs" in 
+  case "$_part_format" in 
     ext4) 
-      mountpoint -q "$FS_CHROOT$mount" || {
-        _exec mkdir -p "$FS_CHROOT$mount"
-        _exec mount "$source" "$FS_CHROOT$mount"
+      mountpoint -q "$mp" || {
+        _exec mkdir -p "$mp"
+        _exec mount "$_part_device" "$mp"
       }
       ;;
     swap) 
-      : _exec swapon "$source"
+      : _exec swapon "$_part_device"
       ;;
     *)
+      _log DEBUG "Can't mount: $_part_device (on $mp)"
       ;;
   esac
 }
@@ -503,6 +543,7 @@ api_os_rm ()
 
 api_os_install_debootstrap ()
 {
+  local debootstrap_cache=/var/tmp
   # Sanity check
   if ! ${RESTRAP_DRY}; then
     mountpoint -q "$FS_CHROOT" || {
@@ -516,17 +557,18 @@ api_os_install_debootstrap ()
   _exec mkdir -p $FS_CHROOT/tmp $FS_CHROOT/var/tmp
   _exec chmod 1777 $FS_CHROOT/tmp $FS_CHROOT/var/tmp
 
+
   # Debootstrap
-  _exec mkdir -p /tmp/debootstrap
+  _exec mkdir -p "$debootstrap_cache"
   tree -L 2 $FS_CHROOT
-  time _exec debootstrap \
+  _exec debootstrap \
     --verbose \
-    --cache-dir=/tmp/debootstrap \
+    --cache-dir="$debootstrap_cache" \
     --include=$extra_packages \
     --components=main,contrib,non-free \
-    $CONF_OS $FS_CHROOT \
+    $_os_release $FS_CHROOT \
     http://deb.debian.org/debian/ || {
-      _log ERROR "Debootstrap '$CONF_OS' failed at some point ..."
+      _log ERROR "Debootstrap '$_os_release' failed at some point ..."
       _log INFO "You will need to flush those files with '${0##*/} rm' command"
       local log_file="$FS_CHROOT/debootstrap/debootstrap.log"
       if [[ -f "$log_file" ]]; then
@@ -634,6 +676,12 @@ EOF
 		--exclude='/.*' \
 		/root/ $FS_CHROOT/root
 
+
+  # Import homes directories
+  #_log INFO "Import homes directories"
+  #_exec rsync -av \
+	#	/homes/ $FS_CHROOT/homes
+
   # Import grub config
   infile=/etc/default/grub
   if [[ -f "$infile" ]]; then
@@ -644,7 +692,7 @@ EOF
       cat > "$FS_CHROOT$infile" <<EOF
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=5
-GRUB_DISTRIBUTOR=Debian-${DIST_COLOR^}
+GRUB_DISTRIBUTOR=${_os_target^}
 GRUB_CMDLINE_LINUX_DEFAULT="quiet"
 GRUB_CMDLINE_LINUX=""
 GRUB_PRELOAD_MODULES="diskfilter lvm mdraid1x"
@@ -658,8 +706,8 @@ EOF
   if ! ${RESTRAP_DRY:-false}; then
       cat > "$outfile" <<EOF
 INSTALL_DATE="$(date --iso-8601=seconds)"
-INSTALL_VARIANT="${DIST_COLOR}"
-INSTALL_PRETTY_VARIANT="${DIST_COLOR^}"
+INSTALL_VARIANT="${_os_target}"
+INSTALL_NAME="${_os_name}"
 EOF
   fi
 
@@ -685,7 +733,14 @@ api_os__gen_fstab ()
 
 api_os_bootloader ()
 {
-  local disk=${1:-$DISK_MBR}
+
+  [[ "$_os_grub_device" != "-" ]] || {
+    _log INFO "Do not manage boot loader"
+    return
+  }
+
+
+  local disk=$_os_grub_device
   local autoboot=false
 
   # Install grub and eventually mbr/efi
@@ -749,7 +804,7 @@ api_os_import ()
   _exec cp "/etc/profile.d/bash_tweaks.sh" "$FS_CHROOT/etc/profile.d/bash_tweaks.sh" || true
   _exec cp "/etc/profile.d/zz_init.sh" "$FS_CHROOT/etc/profile.d/zz_init.sh" || true
   if ! ${RESTRAP_DRY:-false}; then
-    echo "export PS1_HOST_COLOR=$color" > "$FS_CHROOT/etc/profile.d/00_config.sh"
+    echo "export PS1_HOST_COLOR=${color^}" > "$FS_CHROOT/etc/profile.d/00_config.sh"
   fi
 
   _log INFO "User import finished"
@@ -764,18 +819,18 @@ api_os_import ()
 cli__create ()
 {
   : "Create volumes (LVM only)"
-  loop_over_cfg_v2 api_volume_create
+  loop_over_partitions api_volume_create
 }
 
 
 _cli__volumes_list ()
 {
-  case "$fs" in
+  case "$_part_format" in
     ext*)
-      echo "  $source $FS_CHROOT$mount $fs $size"
+      echo "  $_part_device $FS_CHROOT$mount $_part_format $_part_size"
     ;;
   swap)
-      echo "  $source swap $fs $size"
+      echo "  $_part_device swap $_part_format $_part_size"
     ;;
   esac
 }
@@ -788,22 +843,23 @@ cli__format ()
     _log WARN "This will create and reformat the following volumes. Are you sure?"
     {
       echo "Device Target Format? LVCreate?"
-      loop_over_cfg_v2 _cli__volumes_list 
+      loop_over_partitions _cli__volumes_list 
     }| column -t
     printf "\n"
   )
   ask_to_continue "$recap" || return
 
-  loop_over_cfg_v2 api_volume_format || {
+  loop_over_partitions api_volume_format || {
     _log HINT "If you have issues with busy devices, try: findmnt -o TARGET,PROPAGATION,FSTYPE"
     return 1
   }
+  _log INFO "Format successfull"
 }
 
 cli__mount ()
 {
   : "Mount volumes"
-  loop_over_cfg_v2 api_mount_volume
+  loop_over_partitions api_mount_volume
 }
 
 
@@ -827,9 +883,9 @@ cli__rm ()
   ask_to_continue "WARN    : This will 'rm -rf $FS_CHROOT', are you sure?" || return
 
   api_umount_sys
-  loop_over_cfg_v2 api_mount_volume
+  loop_over_partitions api_mount_volume
   api_os_rm
-  tree $FS_CHROOT
+  tree -L 2 $FS_CHROOT
 }
 
 # Workflow commands
@@ -849,7 +905,7 @@ cli__install_all ()
 cli__mount_all ()
 {
   : "Mount all volumes and special fs"
-  loop_over_cfg_v2 api_mount_volume
+  loop_over_partitions api_mount_volume
   api_mount_sys
 }
 
@@ -905,84 +961,128 @@ cli__help ()
 
 ################ DEVEL
 
+####   init_config_OOOLD ()
+####   {
+####     local target=$1
+####   
+####   
+####   ######     local current_os_disk
+####   ######     current_os_disk=${1:-$(mount | sed  -n '/ on \/ type/s@ on / .*@@p')}
+####   ######     OS_MAP=$(grep -v '^#' <<< "$OS_MAP" | grep -v "^$" )
+####   ######     OS_MAP_TMP=$(echo -e "$OS_MAP\n$OS_MAP" )
+####   ######   
+####   ######   #  echo "${current_os_disk}" | grep "/${VG_NAME}-${DISK_NAME_PREFIX}_[a-zA-Z0-9]*_root"
+####   ######   #  echo "${current_os_disk}" | grep "/${VG_NAME}-${DISK_NAME_PREFIX}_[a-zA-Z0-9]*_root"
+####   ######     #name=$(sed -E -n "s@/.*/${VG_NAME}-${DISK_NAME_PREFIX}_([a-zA-Z0-9]*)_root@\\1@p" <<< "$current_os_disk" )
+####   ######     names=$( sed -En 's/^([a-zA-Z0-9][a-zA-Z0-9]*)( .*)/\1/p' <<< "$OS_MAP" )
+####   ######     grep_pattern=$( sed -E 's/(.*)/^\1$/' <<< "$names" )
+####   ######   
+####   ######     # Guess from hostname, part_name
+####   ######     local from_host=$( grep -f <( echo "$grep_pattern" ) <<< "$HOSTNAME" || true )
+####   ######     if [[ ! -z "$from_host" ]]; then
+####   ######       name=$from_host
+####   ######     else
+####   ######       current_os_disk=${1:-$(mount | sed  -n '/ on \/ type/s@ on / .*@@p')}
+####   ######       hint=${current_os_disk##.*-}
+####   ######       if grep -f <( echo "$grep_pattern" ) <<< "$hint"; then
+####   ######         name=$hint
+####   ######       fi
+####   ######     fi
+####   ######   
+####   ######     echo "NAME: $name"
+####   
+####     if [[ -z "$target" ]]; then
+####       _log ERROR "Can't auto-detect target configuration name, please use '-t <TARGET>' option."
+####       exit 1
+####     fi
+####   
+####     # Verify config
+####     config_match=$( grep -m 1 "^$target" <<< "$OS_MAP" ) || {
+####       _log ERROR "Cant' find config '$target' in config file"
+####       list=$(grep -o '^[a-zA-Z0-9][a-zA-Z0-9]*' <<< "$OS_MAP" | tr '\n' ',' | sed 's/,$//')
+####       _log HINT "Available configs: $list"
+####       return 1
+####     }
+####   
+####   echo "|||$config_match|||"
+####   exit 1
+####   
+####   #  set -x
+####   #  : "$OS_MAP"
+####   #  next_config=$( grep -A 1 "^$name" <<< "$OS_MAP_TMP" | sed -n '2p' )
+####   ##  last_option=$(tail -n 1 <<< "$OS_MAP" )
+####   #  #if [[ "$next_config" == "$last_option" ]]; then
+####   #  #  # take the first one then
+####   #  #  next_config=$(head -n 1 <<< "$OS_MAP")
+####   #  #fi
+####   #  set +x
+####   
+####   
+####     # Load config
+####     #while  read -r name grub_disk os prefix _ ; do
+####     #  :
+####     read -r name os grub_disk _  <<< "$config_match"
+####     echo "Weee: ${DISK_NAME_PREFIX}_$name boot on $grub_disk"
+####   
+####     # echo "$PART_MAP2" | column -t
+####   
+####   
+####   
+####   
+####   
+####   
+####   
+####   }
+
+
+
+
+
+#### New config parser
+
+
+
 init_config ()
 {
-  local current_os_disk
-  current_os_disk=${1:-$(mount | sed  -n '/ on \/ type/s@ on / .*@@p')}
-  OS_MAP=$(grep -v '^#' <<< "$OS_MAP" | grep -v "^$" )
-  OS_MAP_TMP=$(echo -e "$OS_MAP\n$OS_MAP" )
+  local target=$1
 
-#  echo "${current_os_disk}" | grep "/${VG_NAME}-${DISK_NAME_PREFIX}_[a-zA-Z0-9]*_root"
-#  echo "${current_os_disk}" | grep "/${VG_NAME}-${DISK_NAME_PREFIX}_[a-zA-Z0-9]*_root"
-  name=$(sed -E -n "s@/.*/${VG_NAME}-${DISK_NAME_PREFIX}_([a-zA-Z0-9]*)_root@\\1@p" <<< "$current_os_disk" )
+  # Load user config
+  DEFAULT_OS=${DEFAULT_OS:-bullseye}
+  DEFAULT_GRUB=${DEFAULT_GRUB:-auto}
+  DEFAULT_VG=${DEFAULT_VG:--}
+  DEFAULT_PREFIX=${DEFAULT_PREFIX:-debian}
+  . /root/prj/rebootstrap/configs/new_conf.sh
 
-  echo "NAME: $name"
-  if [[ -z "$name" ]]; then
-    _log ERROR "Can't auto-detect current configuration name, please use -n option."
-    exit 1
-  fi
 
   # Verify config
-  config_match=$( grep "^$name" <<< "$OS_MAP") || {
-    _log ERROR "Cant' find config '$name' in config file"
+  if [[ -z "$target" ]]; then
+    _log ERROR "Can't auto-detect target configuration name, please use '-t <TARGET>' option."
+    exit 1
+  fi
+  config_match=$( grep -m 1 "^$target" <<< "$OS_MAP"  ) || {
+    _log ERROR "Cant' find config '$target' in config file"
     list=$(grep -o '^[a-zA-Z0-9][a-zA-Z0-9]*' <<< "$OS_MAP" | tr '\n' ',' | sed 's/,$//')
     _log HINT "Available configs: $list"
     return 1
   }
 
-set -x
-  : "$OS_MAP"
-  next_config=$( grep -A 1 "^$name" <<< "$OS_MAP_TMP" | sed -n '2p' )
-#  last_option=$(tail -n 1 <<< "$OS_MAP" )
-  #if [[ "$next_config" == "$last_option" ]]; then
-  #  # take the first one then
-  #  next_config=$(head -n 1 <<< "$OS_MAP")
-  #fi
-  set +x
-
-
   # Load config
-  #while  read -r name grub_disk os prefix _ ; do
-  #  :
-  echo "NEXT_CONFIG=$next_config"
-  read -r name os grub_disk _  <<< "$next_config"
-  echo "Weee: ${DISK_NAME_PREFIX}_$name boot on $grub_disk"
+  #LOOP_CONFIG="$config_match" loop_over_os_v3 _dump_vars
+  LOOP_CONFIG="$config_match" loop_over_os_v3 true
+  _log INFO "Target: $_os_target ($_os_release) installed on /dev/$_os_vg/${_os_target}_root"
 
-  # echo "$PART_MAP2" | column -t
+  # Load disks (DEVEL ONLY)
+  ### LOOP_CONFIG="$PART_MAP" loop_over_partitions _dump_vars
 
+  # TOFIX HARDOCDED VARS
+  FS_CHROOT=/mnt/$_os_target
 
-
-
-
-
-
-}
-
-loop_over_cfg_v3 ()
-{
-  local args=$@
-  local config="$OS_MAP"
-
-  # Loop over entries
-  while  read -r name grub_disk os prefix _ ; do
-
-    [[ ! -z "$name" ]] || continue
-    [[ ! "$name" =~ ^' '*'#' ]] || continue
-
-    # $cmd $args
-    for cmd in $args; do
-      $cmd
-    done
-
-  done <<<"$config"
 }
 
 
 cli__devel ()
 {
-  . /root/prj/rebootstrap/configs/new_conf.sh
-  init_config $@
-  #loop_over_cfg_v3
+  init_config $RESTRAP_TARGET $@
 }
 
 
@@ -992,15 +1092,14 @@ cli__devel ()
 main_app ()
 {
 
-  # Manage flags
+  # Init CLI: options
   RESTRAP_DRY=false
-  while getopts ":n" o; do
+  local OPTIND o
+  while getopts "t:n" o; do
     case "${o}" in
-        n)
-            RESTRAP_DRY=true
-            ;;
-        *)
-            _log ERROR "Unknown option: $o"
+        t) RESTRAP_TARGET=$OPTARG ;;
+        n) RESTRAP_DRY=true ;;
+        *) _log ERROR "Unknown option: $o"
             cli__help
             return 1
             ;;
@@ -1008,40 +1107,26 @@ main_app ()
   done
   shift $((OPTIND-1))
 
-  # First arg
+  # Init CLI: arguments
   local cmd=${1:-help}
   shift 1 || true
 
-  # Init
   local commands=$(declare -f | sed -E -n 's/cli__([a-z0-9_]*) \(\)/\1/p')
   case "$cmd" in
-    -h|--help|help) cmd=help ;;
+    -h|--help|help) cli__help; return ;;
+    devel) shift 1; cli__devel $@; return ;;
   esac
 
-  # Optional second arg
   local target_name=${RESTRAP_TARGET:-}
   if [[ -z "${target_name}" ]]; then
     local target_name=${1:-FAIL}
     shift 1 || true
   fi
-
-  # Other args
   local args=${@:-}
 
-  # Load configurations
-  # TOFIX => hard codede path !
-  for conf in /root/prj/rebootstrap/configs/{common.sh,$target_name.sh}; do
-    if [[ -f "$conf" ]]; then
-      . "$conf"
-    else
-      _log ERROR "Missing configuration file: $conf"
-      return 1
-    fi
-  done
 
-  # Load config
-  FS_CHROOT=/mnt/$target_name
-  DISK_MAPPING=$PART_MAP
+  # Init user config
+  init_config $RESTRAP_TARGET
 
 
   # Dispatch
@@ -1051,6 +1136,22 @@ main_app ()
     _log ERROR "Unknown command: $cmd"
     return 1
   fi
+
+
+
+  # DEPRECATED # Load configurations
+  # DEPRECATED # TOFIX => hard codede path !
+  # DEPRECATED for conf in /root/prj/rebootstrap/configs/{common.sh,$target_name.sh}; do
+  # DEPRECATED   if [[ -f "$conf" ]]; then
+  # DEPRECATED     . "$conf"
+  # DEPRECATED   else
+  # DEPRECATED     _log ERROR "Missing configuration file: $conf"
+  # DEPRECATED     return 1
+  # DEPRECATED   fi
+  # DEPRECATED done
+
+  # Load config
+
 
 }
 
