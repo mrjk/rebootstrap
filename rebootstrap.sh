@@ -39,7 +39,6 @@ init_config ()
   DEFAULT_VG=${DEFAULT_VG:--}
   DEFAULT_PREFIX=${DEFAULT_PREFIX:-debian}
   DEFAULT_BOOT=${DEFAULT_BOOT:-none}
-  RESTRAP_CONFIG=${RESTRAP_CONFIG:-$PWD/config.sh}
 
   [[ -f "$RESTRAP_CONFIG" ]] || {
     _log ERROR "Missing configuration file: $RESTRAP_CONFIG"
@@ -78,6 +77,7 @@ main_app ()
   # Init CLI: options
   RESTRAP_DRY=false
   RESTRAP_FORCE=false
+  RESTRAP_CONFIG=${RESTRAP_CONFIG:-$PWD/config.sh}
   local OPTIND o
   while getopts "t:c:fn" o; do
     case "${o}" in
@@ -107,6 +107,7 @@ main_app ()
     devel) shift 1; cli__devel "$@"; return ;;
   esac
 
+  # Commands with targets
   local target_name=${RESTRAP_TARGET:-}
   if [[ -z "${target_name}" ]]; then
     local target_name=${1:-UNSET_TARGET}
@@ -116,8 +117,6 @@ main_app ()
 
   # Init user config
   init_target "$target_name"
-
-  # Dispatch
   if grep -q "$cmd" <<< "$commands"; then
     "cli__$cmd" "$args"
   else
@@ -364,7 +363,7 @@ _exec ()
   if ${RESTRAP_DRY:-false}; then
     _log DRY "  | $cmd"
   else
-    _log RUN "  > $cmd"
+    _log RUN "  | $cmd"
     $cmd
   fi
 
@@ -624,13 +623,17 @@ api_mount_volume ()
 
 api_mount_volumes ()
 {
-  _log INFO "Mount target volumes"
+  _log INFO "Ensure target volumes are mounted"
+  ${_MOUNTED_VOL:-false} && return || true
+  _MOUNTED_VOL=true
   _loop_partitions_map api_mount_volume
 }
 
 api_mount_sys ()
 {
   _log INFO "Mount special file systems"
+  ${_MOUNTED_PROC:-false} && return || true
+  _MOUNTED_PROC=true
 
   mountpoint -q "${_os_chroot}/proc" || {
     _exec mkdir -p "${_os_chroot}/proc"
@@ -659,6 +662,10 @@ api_mount_sys ()
 
 api_umount_sys ()
 {
+  _log INFO "Umount target special filesystems: ${_os_chroot}/{dev,sys,proc}"
+  ${_MOUNTED_PROC:-false} && true || return 0
+  _MOUNTED_PROC=false
+
   ! mountpoint -q "${_os_chroot}/proc" || {
     _exec umount -R "${_os_chroot}/proc"
   }
@@ -671,16 +678,21 @@ api_umount_sys ()
   ! mountpoint -q "${_os_chroot}/dev" || {
     _exec umount -R "${_os_chroot}/dev"
   }
-  _log INFO "Special filesystems unmounted in ${_os_chroot} (/dev,/sys/,proc)"
 }
 
 api_umount_all ()
 {
+  _log INFO "Unmount all filesystems in ${_os_chroot}"
+  ${_MOUNTED_PROC:-false} && true || return 0
+  _MOUNTED_PROC=false
+  ${_MOUNTED_VOL:-false} && true || return 0
+  _MOUNTED_VOL=false
+
   local opts=${*-}
   for i in $( mount | awk  '{ print $3 }' | grep "^${_os_chroot}" | tac); do
     # sleep 0.5 #  Do we have a timing issue here ?
     if _exec umount $opts "$i"; then
-      _log INFO "Succesfully unmounted: $i"
+      : _log INFO "Succesfully unmounted: $i"
     else
       _log ERROR "Failed to unmount: $i"
       return
