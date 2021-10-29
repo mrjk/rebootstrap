@@ -30,6 +30,46 @@ set -eu
 # Core App
 # =================
 
+init_config ()
+{
+
+  # Load user config
+  DEFAULT_OS=${DEFAULT_OS:-bullseye}
+  DEFAULT_GRUB=${DEFAULT_GRUB:-auto}
+  DEFAULT_VG=${DEFAULT_VG:--}
+  DEFAULT_PREFIX=${DEFAULT_PREFIX:-debian}
+  RESTRAP_CONFIG=${RESTRAP_CONFIG:-$PWD/config.sh}
+
+  [[ -f "$RESTRAP_CONFIG" ]] || {
+    _log ERROR "Missing configuration file: $RESTRAP_CONFIG"
+    return 1
+  }
+  # shellcheck source=config.sh
+  . "$RESTRAP_CONFIG"
+}
+
+init_target ()
+{
+  local target=$1
+
+  # Verify config
+  if [[ -z "$target" ]]; then
+    _log ERROR "Can't auto-detect target configuration name, please use '-t <TARGET>' option."
+    exit 1
+  fi
+  config_match=$( grep -m 1 "^$target" <<< "$OS_MAP"  ) || {
+    _log ERROR "Cant' find config '$target' in config file"
+    list=$(grep -o '^[a-zA-Z0-9][a-zA-Z0-9]*' <<< "$OS_MAP" | tr '\n' ',' | sed 's/,$//')
+    _log HINT "Available configs: $list"
+    return 1
+  }
+
+  # Load config
+  LOOP_CONFIG="$config_match" _loop_os_map true # _dump_vars
+  _log INFO "Target: $_os_target ($_os_release) installed on /dev/$_os_vg/${_os_target}_root"
+
+}
+
 main_app ()
 {
   local commands
@@ -84,50 +124,13 @@ main_app ()
 
 }
 
-init_config ()
-{
-
-  # Load user config
-  DEFAULT_OS=${DEFAULT_OS:-bullseye}
-  DEFAULT_GRUB=${DEFAULT_GRUB:-auto}
-  DEFAULT_VG=${DEFAULT_VG:--}
-  DEFAULT_PREFIX=${DEFAULT_PREFIX:-debian}
-  # RESTRAP_CONFIG=${RESTRAP_CONFIG:-$PWD/config.sh}
-  RESTRAP_CONFIG=${RESTRAP_CONFIG:-/root/prj/rebootstrap/configs/new_conf.sh}
-
-  [[ -f "$RESTRAP_CONFIG" ]] || {
-    _log ERROR "Missing configuration file: $RESTRAP_CONFIG"
-    return 1
-  }
-  # shellcheck source=config.sh
-  . "$RESTRAP_CONFIG"
-}
-
-init_target ()
-{
-  local target=$1
-
-  # Verify config
-  if [[ -z "$target" ]]; then
-    _log ERROR "Can't auto-detect target configuration name, please use '-t <TARGET>' option."
-    exit 1
-  fi
-  config_match=$( grep -m 1 "^$target" <<< "$OS_MAP"  ) || {
-    _log ERROR "Cant' find config '$target' in config file"
-    list=$(grep -o '^[a-zA-Z0-9][a-zA-Z0-9]*' <<< "$OS_MAP" | tr '\n' ',' | sed 's/,$//')
-    _log HINT "Available configs: $list"
-    return 1
-  }
-
-  # Load config
-  LOOP_CONFIG="$config_match" _loop_os_map true # _dump_vars
-  _log INFO "Target: $_os_target ($_os_release) installed on /dev/$_os_vg/${_os_target}_root"
-
-}
 
 
 # CLI API
 # =================
+
+# Info commands
+# -------------
 
 cli__help ()
 {
@@ -138,6 +141,9 @@ cli__help ()
   echo "usage: ${0##*/} <COMMAND> <TARGET> [<ARGS>]"
   echo "       ${0##*/} help"
   echo ""
+  echo "workflow:"
+  echo "  format -> debootstrap -> bootloader -> configure"
+  echo ""
 
   echo "COMMANDS:"
   declare -f | grep -E -A 2 '^cli__[a-z0-9_]* \(\)' \
@@ -145,15 +151,36 @@ cli__help ()
     | xargs -n2 -d'\n' | column -t -s ',' 
 }
 
+_cli__list_targets ()
+{
+  echo "  - $_os_name: $_os_target ($_os_release) booting on $_os_grub"
+}
 
-# Specialized commands
+cli__list ()
+{
+  : "Show all available targets"
+
+  _log INFO "Configuration file: $RESTRAP_CONFIG"
+  _log INFO "Available targets:"
+  _loop_os_map _cli__list_targets | _log INFO -
+}
+
+cli__chroot ()
+{
+  : "Chroot into the target"
+  cli__mount_all
+  api_os_chroot "$@"
+}
+
+
+# Volumes commands
+# -------------
 
 cli__create ()
 {
   : "Create volumes (LVM only)"
   _loop_partitions_map api_volume_create
 }
-
 
 _cli__volumes_list ()
 {
@@ -182,32 +209,12 @@ cli__format ()
   )
   _ask_to_continue "$recap" || return
 
+  api_umount_all
   _loop_partitions_map api_volume_format || {
     _log HINT "If you have issues with busy devices, try: findmnt -o TARGET,PROPAGATION,FSTYPE"
     return 1
   }
   _log INFO "Format successfull"
-}
-
-cli__mount ()
-{
-  : "Mount volumes"
-  _loop_partitions_map api_mount_volume
-}
-
-
-cli__umount_all ()
-{
-  : "Umount all volumes and special fs"
-  api_umount_all
-}
-
-
-cli__chroot ()
-{
-  : "Chroot into the target"
-  cli__mount_all
-  api_os_chroot "$@"
 }
 
 cli__rm ()
@@ -216,13 +223,37 @@ cli__rm ()
   _ask_to_continue "WARN    : This will 'rm -rf ${_os_chroot}', are you sure?" || return
 
   api_umount_sys
-  _loop_partitions_map api_mount_volume
+  api_mount_volumes
   api_os_rm
   tree -L 2 "${_os_chroot}"
 }
 
 
+# Mount commands
+# -------------
+
+cli__mount ()
+{
+  : "Mount volumes"
+  api_mount_volumes
+}
+
+cli__mount_all ()
+{
+  : "Mount all volumes and special fs"
+  api_mount_volumes
+  api_mount_sys
+}
+
+cli__umount_all ()
+{
+  : "Umount all volumes and special fs"
+  api_umount_all
+}
+
+
 # Workflow commands
+# -------------
 
 cli__install_all ()
 {
@@ -234,20 +265,7 @@ cli__install_all ()
   cli__rm
   cli__debootstrap
   cli__configure
-}
-
-cli__mount_all ()
-{
-  : "Mount all volumes and special fs"
-  _loop_partitions_map api_mount_volume
-  api_mount_sys
-}
-
-cli__bootloader ()
-{
-  : "Configure and install bootloaders"
-  api_mount_sys
-  api_os_bootloader
+  cli__bootloader
 }
 
 cli__debootstrap ()
@@ -256,7 +274,6 @@ cli__debootstrap ()
   api_umount_sys
   cli__mount
   api_os_install_debootstrap
-  cli__bootloader
 }
 
 cli__configure ()
@@ -267,31 +284,22 @@ cli__configure ()
   api_os_import
 }
 
-cli_list_targets ()
+cli__bootloader ()
 {
-  echo "  - $_os_name: $_os_target ($_os_release) booting on $_os_grub"
-}
-
-cli__list ()
-{
-  : "Show all available targets"
-
-  _log INFO "Available targets"
-  _loop_os_map cli_list_targets | _log INFO -
+  : "Configure and install bootloaders"
+  api_os_bootloader_target
+  api_os_bootloader_host
 }
 
 
 # Devel
-# =================
-
+# -------------
 
 cli__devel ()
 {
   : ""
   init_config "$RESTRAP_TARGET" "$@"
 }
-
-
 
 
 # Libraries
@@ -570,20 +578,10 @@ api_mount_volume ()
   esac
 }
 
-# api_mount_sys_test ()
-# {
-#   local chroot=$_os_chroot
-# 
-#   _exec mount proc "$chroot/proc" -t proc -o nosuid,noexec,nodev &&
-#   _exec mount sys "$chroot/sys" -t sysfs -o nosuid,noexec,nodev,ro &&
-#   # ignore_error chroot_maybe_add_mount "[[ -d '$chroot/sys/firmware/efi/efivars' ]]" \
-#   #     efivarfs "$chroot/sys/firmware/efi/efivars" -t efivarfs -o nosuid,noexec,nodev &&
-#   _exec mount udev "$chroot/dev" -t devtmpfs -o mode=0755,nosuid &&
-#   _exec mount devpts "$chroot/dev/pts" -t devpts -o mode=0620,gid=5,nosuid,noexec &&
-#   _exec mount shm "$chroot/dev/shm" -t tmpfs -o mode=1777,nosuid,nodev &&
-#   _exec mount /run "$chroot/run" --bind &&
-#   _exec mount tmp "$chroot/tmp" -t tmpfs -o mode=1777,strictatime,nodev,nosuid
-# }
+api_mount_volumes ()
+{
+  _loop_partitions_map api_mount_volume
+}
 
 api_mount_sys ()
 {
@@ -716,18 +714,39 @@ api_os_install_debootstrap ()
     }
 }
 
-api_os_bootloader ()
+api_os_bootloader_target ()
 {
+  api_mount_volumes
 
   [[ "$_os_grub_device" != "-" ]] || {
     _log INFO "Do not manage boot loader"
     return
   }
-
   local disk=$_os_grub_device
   local autoboot=false
 
+  # Import grub config
+  local infile=/etc/default/grub
+  if [[ -f "$infile" ]]; then
+    _log INFO "Import $infile"
+    _exec cp "$infile" "${_os_chroot}$infile"
+    _exec sed -i "s/GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR='$_os_target'/" "${_os_chroot}$infile"
+  else
+    if ! ${RESTRAP_DRY:-false}; then
+      cat > "${_os_chroot}$infile" <<EOF
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=5
+GRUB_DISTRIBUTOR=${_os_target}
+GRUB_CMDLINE_LINUX_DEFAULT="quiet"
+GRUB_CMDLINE_LINUX=""
+GRUB_PRELOAD_MODULES="diskfilter lvm mdraid1x"
+EOF
+    fi
+  fi
+
+
   # Install grub and eventually mbr/efi
+  _log INFO "Updating target grub config"
   api_os_chroot grub-mkdevicemap
   if [[ ! -z "${disk:-}" ]]; then
     if $autoboot ; then
@@ -740,7 +759,13 @@ api_os_bootloader ()
   fi
   api_os_chroot update-grub
 
+}
+
+api_os_bootloader_host ()
+{
   # Exec local update to detect this new OS
+  api_umount_all
+  _log INFO "Updating current host grub config"
   _exec grub-mkdevicemap
   if $autoboot ; then
     _exec grub-install "$disk"
@@ -750,9 +775,9 @@ api_os_bootloader ()
   fi
   _exec update-grub
   if $autoboot ; then
-    _log INFO "User import finished, OS will reboot on TARGET OS."
+    _log INFO "Grub configuration finished, OS will reboot on TARGET OS."
   else
-    _log INFO "User import finished, system will reboot on the current OS."
+    _log INFO "Grub configuration finished, system will reboot on the current OS."
   fi
 }
 
@@ -907,24 +932,6 @@ EOF
   #_exec rsync -av \
 	#	/homes/ ${_os_chroot}/homes
 
-  # Import grub config
-  infile=/etc/default/grub
-  if [[ -f "$infile" ]]; then
-    _log INFO "Import $infile"
-    _exec cp "$infile" "${_os_chroot}$infile"
-  else
-    if ! ${RESTRAP_DRY:-false}; then
-      cat > "${_os_chroot}$infile" <<EOF
-GRUB_DEFAULT=0
-GRUB_TIMEOUT=5
-GRUB_DISTRIBUTOR=${_os_target^}
-GRUB_CMDLINE_LINUX_DEFAULT="quiet"
-GRUB_CMDLINE_LINUX=""
-GRUB_PRELOAD_MODULES="diskfilter lvm mdraid1x"
-EOF
-    fi
-  fi
-
   # Save the date
   outfile=${_os_chroot}/etc/install-release
   _log INFO "Configure $outfile"
@@ -977,36 +984,34 @@ api_os_import ()
 # =================
 
 main_app "$@"
-
-
-
 exit
+
 
 ######   DEPRECATED  # =================
 
-os_install_grml ()
-{   
-  echo "Installing with packages: $DEFAULT_PACKAGES"
-
-  # Fix some mount permissions
-  wrap_exec mkdir -p "${_os_chroot}/tmp" "${_os_chroot}/var/tmp" /tmp/debootstrap
-  wrap_exec chmod 1777 "${_os_chroot}/tmp" "${_os_chroot}/var/tmp"
-
-  # with grml
-  wrap_exec grml-debootstrap \
-    --debopt --cache-dir=/tmp/debootstrap \
-    --target "${_os_chroot}" \
-    --release "$_os_release" \
-    --grub "$CONF_GRUB_DEVICE" \
-    --defaultinterfaces \
-    --contrib \
-    --non-free \
-    -v \
-    --force \
-    --sshcopyid \
-    --packages <(echo "$DEFAULT_PACKAGES") \
-    --password "qwerty78" || {
-    echo "ERROR: Something wrong happened, please check the logs: ${_os_chroot}/debootstrap/debootstrap.log"
-    return 1
-  }
-}
+# os_install_grml ()
+# {   
+#   echo "Installing with packages: $DEFAULT_PACKAGES"
+# 
+#   # Fix some mount permissions
+#   wrap_exec mkdir -p "${_os_chroot}/tmp" "${_os_chroot}/var/tmp" /tmp/debootstrap
+#   wrap_exec chmod 1777 "${_os_chroot}/tmp" "${_os_chroot}/var/tmp"
+# 
+#   # with grml
+#   wrap_exec grml-debootstrap \
+#     --debopt --cache-dir=/tmp/debootstrap \
+#     --target "${_os_chroot}" \
+#     --release "$_os_release" \
+#     --grub "$CONF_GRUB_DEVICE" \
+#     --defaultinterfaces \
+#     --contrib \
+#     --non-free \
+#     -v \
+#     --force \
+#     --sshcopyid \
+#     --packages <(echo "$DEFAULT_PACKAGES") \
+#     --password "abcdef1234" || {
+#     echo "ERROR: Something wrong happened, please check the logs: ${_os_chroot}/debootstrap/debootstrap.log"
+#     return 1
+#   }
+# }
