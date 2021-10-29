@@ -107,6 +107,15 @@ main_app ()
     devel) shift 1; cli__devel "$@"; return ;;
   esac
 
+  # Binary requirements
+  local prog
+  for prog in column debootstrap; do
+    _check_bin $prog || {
+      _log ERROR "Command '$prog' must be installed first"
+      return 1
+    }
+  done
+
   # Commands with targets
   local target_name=${RESTRAP_TARGET:-}
   if [[ -z "${target_name}" ]]; then
@@ -393,7 +402,7 @@ _make_default ()
 
 _check_bin ()
 {
-  local cmds="${*:-}"
+  local cmd cmds="${*:-}"
   for cmd in $cmds; do
     command -v "$1" >&/dev/null || return 1
   done
@@ -462,7 +471,7 @@ _loop_os_map ()
       _os_grub_partition=-
     fi
 
-    # $cmd $args
+    local cmd
     for cmd in $args; do
       $cmd
     done
@@ -540,7 +549,7 @@ _loop_partitions_map ()
       esac
     fi
 
-    # $cmd $args
+    local cmd
     for cmd in $args; do
       $cmd
     done
@@ -690,9 +699,8 @@ api_umount_all ()
   # ${_MOUNTED_VOL:-false} && true || return 0
   # _MOUNTED_VOL=false
 
-  local opts=${*-}
+  local i opts=${*-}
   for i in $( mount | awk  '{ print $3 }' | grep "^${_os_chroot}" | tac); do
-    # sleep 0.5 #  Do we have a timing issue here ?
     if _exec umount $opts "$i"; then
       : _log INFO "Succesfully unmounted: $i"
     else
@@ -808,6 +816,7 @@ EOF
   fi
 
   # Patch missing rm binary in initamfs
+  # TOFIX: Is this patch still required ?
   local outfile=${_os_chroot}/usr/share/initramfs-tools/hooks/mdadm
   if ! grep -q '^copy_exec /usr/bin/rm .*' "$outfile"; then
     _log INFO "Patch initramfs hook: $outfile"
@@ -913,6 +922,10 @@ api_os_packages ()
   echo "wget"
   echo "curl"
 
+  # Rebootstrap dependencies
+  echo "bsdmainutils"  # column
+  echo "debootstrap"  # debootstrap
+
 }
 
 api_os_preconfigure ()
@@ -925,6 +938,7 @@ api_os_preconfigure ()
   _log INFO "Configure $outfile"
   if ! ${RESTRAP_DRY:-false}; then
     api_os_gen_fstab > "$outfile"
+    local i
     for i in $( grep -Ev '^ *#' "$outfile" | awk '{ print $2}' | grep -v '^/$' ) ; do
       [[ -d "${_os_chroot}$i" ]] || _exec mkdir -p "${_os_chroot}$i"
     done

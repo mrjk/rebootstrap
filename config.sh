@@ -4,7 +4,8 @@ DEFAULT_VG=vg_fast
 DEFAULT_OS=bullseye
 DEFAULT_GRUB=mbr
 DEFAULT_PREFIX=debian
-DEFAULT_BOOT=current
+#DEFAULT_BOOT=current
+DEFAULT_BOOT=none
 
 OS_MAP="
 #name   os        grub            vg
