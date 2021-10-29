@@ -805,6 +805,18 @@ EOF
     fi
   fi
 
+  # Patch missing rm binary in initamfs
+  local outfile=${_os_chroot}/usr/share/initramfs-tools/hooks/mdadm
+  if ! grep '^copy_exec /bin/rm /bin/' "$outfile"; then
+    _log INFO "Patch initramfs hook: $outfile"
+    if ! ${RESTRAP_DRY}; then
+      local content=$(tac "$outfile" | \
+        awk '!p && /copy_exec/{print "copy_exec /bin/rm /bin/"; p=1} 1' | \
+        tac)
+      echo "$content" > "$outfile"
+    fi
+  fi
+
 
   # Install grub and eventually mbr/efi
   _log INFO "Updating target grub config"
