@@ -38,6 +38,7 @@ init_config ()
   DEFAULT_GRUB=${DEFAULT_GRUB:-auto}
   DEFAULT_VG=${DEFAULT_VG:--}
   DEFAULT_PREFIX=${DEFAULT_PREFIX:-debian}
+  DEFAULT_BOOT=${DEFAULT_BOOT:-none}
   RESTRAP_CONFIG=${RESTRAP_CONFIG:-$PWD/config.sh}
 
   [[ -f "$RESTRAP_CONFIG" ]] || {
@@ -76,12 +77,14 @@ main_app ()
 
   # Init CLI: options
   RESTRAP_DRY=false
+  RESTRAP_FORCE=false
   local OPTIND o
-  while getopts "t:c:n" o; do
+  while getopts "t:c:fn" o; do
     case "${o}" in
         t) RESTRAP_TARGET=$OPTARG ;;
         c) RESTRAP_CONFIG=$OPTARG ;;
         n) RESTRAP_DRY=true ;;
+        f) RESTRAP_FORCE=true ;;
         *) _log ERROR "Unknown option: $o"
             cli__help
             return 1
@@ -142,7 +145,7 @@ cli__help ()
   echo "       ${0##*/} help"
   echo ""
   echo "workflow:"
-  echo "  format -> debootstrap -> bootloader -> configure"
+  echo "  install = format -> debootstrap -> bootloader -> configure"
   echo ""
 
   echo "COMMANDS:"
@@ -225,7 +228,6 @@ cli__rm ()
   api_umount_sys
   api_mount_volumes
   api_os_rm
-  tree -L 2 "${_os_chroot}"
 }
 
 
@@ -255,7 +257,7 @@ cli__umount_all ()
 # Workflow commands
 # -------------
 
-cli__install_all ()
+cli__install ()
 {
   : "Clean everything and install all from fresh start"
   cli__umount_all
@@ -265,7 +267,7 @@ cli__install_all ()
   cli__rm
   cli__debootstrap
   cli__configure
-  cli__bootloader
+  cli__boot
 }
 
 cli__debootstrap ()
@@ -284,11 +286,48 @@ cli__configure ()
   api_os_import
 }
 
-cli__bootloader ()
+_cli__boot_usage="none|current|target"
+
+cli__boot ()
 {
-  : "Configure and install bootloaders"
-  api_os_bootloader_target
-  api_os_bootloader_host
+  : "Select boot system"
+  #_dump_vars
+
+  local target=${1:-$DEFAULT_BOOT}
+  local boot_target=false
+  local boot_current=false
+  case "$target" in
+    current)
+      _ask_to_continue "Install grub in MBR for '$target' os in '$_os_grub_device' to '$_os_grub_partition' ?"
+      boot_current=true
+      ;;
+    target)
+      _ask_to_continue "Install grub in MBR for '$target' os in '$_os_grub_device' to '$_os_grub_partition' ?"
+      boot_target=true
+      ;;
+    none) 
+      _log INFO "Configure and update grub. MBR won't be touched."
+      ;;
+    *)
+      _log ERROR "Option must be one of: none, current or target"
+      return 1
+      ;;
+  esac
+
+  api_os_bootloader_target $boot_target
+  api_os_bootloader_host $boot_current
+
+  case "$target" in
+    current)
+      _log INFO "Grub configuration finished, system will reboot on the current OS."
+      ;;
+    target)
+      _log INFO "Grub configuration finished, OS will reboot on TARGET OS."
+      ;;
+    none) 
+      _log INFO "Grub configuration has been updated. MBR was not touched"
+      ;;
+  esac
 }
 
 
@@ -307,14 +346,14 @@ cli__devel ()
 
 _log ()
 {
-  local lvl=${1:-DEBUG}
+  local lvl="${1:-DEBUG}"
   shift 1 || true
   local msg=${*}
   if [[ "$msg" == '-' ]]; then
-    msg=$(cat - )
+    msg="$(cat - )"
   fi
-  while read -u 3 line; do
-    >&2 printf '%-8s: %s\n' "$lvl" "${line:- }"
+  while read -u 3 line ; do
+    >&2 printf "%5s: ${line:- }\\n" "$lvl"
   done 3<<<"$msg"
 }
 
@@ -323,9 +362,9 @@ _exec ()
   local cmd=$@
 
   if ${RESTRAP_DRY:-false}; then
-    _log DRY "$cmd"
+    _log DRY "  | $cmd"
   else
-    _log RUN "$cmd"
+    _log RUN "  > $cmd"
     $cmd
   fi
 
@@ -361,9 +400,14 @@ _check_bin ()
 
 _ask_to_continue ()
 {
+  local msg="${1}"
+  if ${RESTRAP_FORCE:-false}; then
+    _log WARN "$msg"
+    _log FORCE "  > true"
+    return
+  fi
   ${RESTRAP_DRY:-false} && return || true
 
-  local msg="${1}"
   local waitingforanswer=true
   while ${waitingforanswer}; do
     read -r -p "${msg}"$'\n(hit "y/Y" to continue, "n/N" to cancel) ' -n 1 ynanswer
@@ -580,11 +624,14 @@ api_mount_volume ()
 
 api_mount_volumes ()
 {
+  _log INFO "Mount target volumes"
   _loop_partitions_map api_mount_volume
 }
 
 api_mount_sys ()
 {
+  _log INFO "Mount special file systems"
+
   mountpoint -q "${_os_chroot}/proc" || {
     _exec mkdir -p "${_os_chroot}/proc"
     _exec mount -t proc /proc "${_os_chroot}/proc"
@@ -666,13 +713,15 @@ api_os_rm ()
     _log CRITICAL "Variable _os_chroot=${_os_chroot} is empty"
     return 2
   fi
-  mountpoint -q "${_os_chroot}" || {
-    _log ERROR "Filesystem is not mounted in ${_os_chroot}"
-    return 1
-  }
+  if ! ${RESTRAP_DRY}; then
+    mountpoint -q "${_os_chroot}" || {
+      _log ERROR "Filesystem is not mounted in ${_os_chroot}"
+      return 1
+    }
+  fi
 
-  _exec rm -rf "${_os_chroot:-BUG}"/* || true
-  _log INFO "System has been removed"
+  _exec rm -rf "${_os_chroot:-BUG}"/* 2>/dev/null || true
+  _log INFO "Target has been cleaned: (rm -rf ${_os_chroot:-BUG}/*)"
     
 }
 
@@ -696,7 +745,7 @@ api_os_install_debootstrap ()
 
   # Debootstrap
   _exec mkdir -p "$debootstrap_cache"
-  tree -L 2 "${_os_chroot}"
+  tree -L 2 -I "sys|proc|dev" "${_os_chroot}" | head -n 50
   _exec debootstrap \
     --verbose \
     --cache-dir="$debootstrap_cache" \
@@ -716,6 +765,7 @@ api_os_install_debootstrap ()
 
 api_os_bootloader_target ()
 {
+  local autoboot=${1:-false}
   api_mount_volumes
 
   [[ "$_os_grub_device" != "-" ]] || {
@@ -723,7 +773,6 @@ api_os_bootloader_target ()
     return
   }
   local disk=$_os_grub_device
-  local autoboot=false
 
   # Import grub config
   local infile=/etc/default/grub
@@ -750,7 +799,6 @@ EOF
   api_os_chroot grub-mkdevicemap
   if [[ ! -z "${disk:-}" ]]; then
     if $autoboot ; then
-      # TOFIX: Enable this to next boot on this distro
       _log INFO "Next boot: Target OS /!\\"
       api_os_chroot grub-install "$disk"
     else
@@ -763,22 +811,33 @@ EOF
 
 api_os_bootloader_host ()
 {
-  # Exec local update to detect this new OS
+  local autoboot=${1:-false}
+
+  [[ "$_os_grub_device" != "-" ]] || {
+    _log INFO "Do not manage boot loader"
+    return
+  }
+  local disk=$_os_grub_device
+
+  # Note:
+  # os-prober does not correctly detect target /boot
+  # partition (if any), it works better when all volumes are unmounted
   api_umount_all
+
+  # Exec local update to detect this new OS
   _log INFO "Updating current host grub config"
   _exec grub-mkdevicemap
   if $autoboot ; then
     _exec grub-install "$disk"
   else
-    _log INFO "Next boot: Current OS"
-    _exec grub-install --no-bootsector "$disk"
+    if $autoboot ; then
+      _log INFO "Next boot: Current OS"
+      _exec grub-install "$disk"
+    else
+      _exec grub-install --no-bootsector "$disk"
+    fi
   fi
   _exec update-grub
-  if $autoboot ; then
-    _log INFO "Grub configuration finished, OS will reboot on TARGET OS."
-  else
-    _log INFO "Grub configuration finished, system will reboot on the current OS."
-  fi
 }
 
 
