@@ -171,7 +171,7 @@ cli__chroot ()
 {
   : "Chroot into the target"
   cli__mount_all
-  api_os_chroot "$@"
+  api_os_chroot ${@-}
 }
 
 
@@ -282,7 +282,9 @@ cli__configure ()
   : "Configure the minimal base system and import data"
   cli__mount_all
   api_os_preconfigure
-  api_os_import
+  api_os_import || {
+    _log WARN "Some errors might happened while importing files"
+  }
 }
 
 _cli__boot_usage="none|current|target"
@@ -632,8 +634,8 @@ api_mount_volumes ()
 api_mount_sys ()
 {
   _log INFO "Mount special file systems"
-  ${_MOUNTED_PROC:-false} && return || true
-  _MOUNTED_PROC=true
+  # ${_MOUNTED_PROC:-false} && return || true
+  # _MOUNTED_PROC=true
 
   mountpoint -q "${_os_chroot}/proc" || {
     _exec mkdir -p "${_os_chroot}/proc"
@@ -663,8 +665,8 @@ api_mount_sys ()
 api_umount_sys ()
 {
   _log INFO "Umount target special filesystems: ${_os_chroot}/{dev,sys,proc}"
-  ${_MOUNTED_PROC:-false} && true || return 0
-  _MOUNTED_PROC=false
+  # ${_MOUNTED_PROC:-false} && true || return 0
+  # _MOUNTED_PROC=false
 
   ! mountpoint -q "${_os_chroot}/proc" || {
     _exec umount -R "${_os_chroot}/proc"
@@ -683,10 +685,10 @@ api_umount_sys ()
 api_umount_all ()
 {
   _log INFO "Unmount all filesystems in ${_os_chroot}"
-  ${_MOUNTED_PROC:-false} && true || return 0
-  _MOUNTED_PROC=false
-  ${_MOUNTED_VOL:-false} && true || return 0
-  _MOUNTED_VOL=false
+  # ${_MOUNTED_PROC:-false} && true || return 0
+  # _MOUNTED_PROC=false
+  # ${_MOUNTED_VOL:-false} && true || return 0
+  # _MOUNTED_VOL=false
 
   local opts=${*-}
   for i in $( mount | awk  '{ print $3 }' | grep "^${_os_chroot}" | tac); do
@@ -713,7 +715,7 @@ api_umount_all ()
 
 api_os_chroot ()
 {
-  local cmd=${*:-/bin/bash --login}
+  local cmd=${@:-/bin/bash --login}
   # _log INFO "Chrooting shell into ${_os_chroot}: $cmd"
   _exec chroot "${_os_chroot}" $cmd
 }
@@ -807,14 +809,15 @@ EOF
 
   # Patch missing rm binary in initamfs
   local outfile=${_os_chroot}/usr/share/initramfs-tools/hooks/mdadm
-  if ! grep '^copy_exec /bin/rm /bin/' "$outfile"; then
+  if ! grep -q '^copy_exec /usr/bin/rm .*' "$outfile"; then
     _log INFO "Patch initramfs hook: $outfile"
     if ! ${RESTRAP_DRY}; then
       local content=$(tac "$outfile" | \
-        awk '!p && /copy_exec/{print "copy_exec /bin/rm /bin/"; p=1} 1' | \
+        awk '!p && /copy_exec/{print "copy_exec /usr/bin/rm /usr/bin"; p=1} 1' | \
         tac)
       echo "$content" > "$outfile"
     fi
+    api_os_chroot update-initramfs -u 
   fi
 
 
@@ -967,7 +970,7 @@ EOF
   fi
   infile=/etc/systemd/resolved.conf.d
   if [[ -d "$infile/" ]]; then
-    _exec cp -R "$infile/" "${_os_chroot}$infile"
+    _exec cp -aT "$infile/" "${_os_chroot}$infile"
   else
     if ! ${RESTRAP_DRY:-false}; then
       _exec mkdir -p "${_os_chroot}$infile"
@@ -983,7 +986,7 @@ EOF
   infile=/etc/systemd/network
   _log INFO "Import systemd resolved config"
   if [[ -d "$infile/" ]]; then
-    _exec cp -R "$infile/" "${_os_chroot}$infile"
+    _exec cp -aT "$infile/" "${_os_chroot}$infile"
     api_os_chroot systemctl disable networking.service
     api_os_chroot systemctl enable systemd-networkd.service
   fi
@@ -991,7 +994,7 @@ EOF
 
   # Import other convenients stuffs
   _log INFO "Import /etc/ssh"
-  _exec cp -a "/etc/ssh" "${_os_chroot}/etc/ssh" || \
+  _exec cp -aT "/etc/ssh" "${_os_chroot}/etc/ssh" || \
     _log WARN "Import failed (rc=$?)"
 
   _log INFO "Import /etc/vim/vimrc.local"
@@ -1014,6 +1017,12 @@ EOF
   #_log INFO "Import homes directories"
   #_exec rsync -av \
 	#	/homes/ ${_os_chroot}/homes
+
+  # Import root password
+  outfile="${_os_chroot}/etc/shadow"
+  infile=$(grep "^root:" /etc/shadow)
+  _log INFO "Import root password"
+  _exec sed -i "s@^root:.*@$infile@" "$outfile"
 
   # Save the date
   outfile=${_os_chroot}/etc/install-release
@@ -1049,7 +1058,7 @@ api_os_gen_fstab ()
 api_os_import ()
 {
   _log INFO "Import User settings"
-  color=green
+  color=${_os_name}
 
   _exec cp "/etc/profile.d/bash_tweaks.sh" "${_os_chroot}/etc/profile.d/bash_tweaks.sh" || true
   _exec cp "/etc/profile.d/zz_init.sh" "${_os_chroot}/etc/profile.d/zz_init.sh" || true
@@ -1058,7 +1067,6 @@ api_os_import ()
   fi
 
   _log INFO "User import finished"
-
 }
 
 
