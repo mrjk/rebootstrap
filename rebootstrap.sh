@@ -691,6 +691,12 @@ api_umount_sys ()
   }
 }
 
+api_mount_all ()
+{
+  api_mount_volumes
+  api_mount_sys
+}
+
 api_umount_all ()
 {
   _log INFO "Unmount all filesystems in ${_os_chroot}"
@@ -751,6 +757,8 @@ api_os_install_debootstrap ()
 {
   local extra_packages
   local debootstrap_cache=/var/tmp
+  api_mount_volumes
+
   # Sanity check
   if ! ${RESTRAP_DRY}; then
     mountpoint -q "${_os_chroot}" || {
@@ -788,7 +796,7 @@ api_os_install_debootstrap ()
 api_os_bootloader_target ()
 {
   local autoboot=${1:-false}
-  api_mount_volumes
+  api_mount_all
 
   [[ "$_os_grub_device" != "-" ]] || {
     _log INFO "Do not manage boot loader"
