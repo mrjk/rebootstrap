@@ -824,6 +824,7 @@ GRUB_DISTRIBUTOR=${_os_target}
 GRUB_CMDLINE_LINUX_DEFAULT="quiet"
 GRUB_CMDLINE_LINUX=""
 GRUB_PRELOAD_MODULES="diskfilter lvm mdraid1x"
+GRUB_DISABLE_OS_PROBER=true
 EOF
     fi
   fi
@@ -849,9 +850,9 @@ EOF
   if [[ ! -z "${disk:-}" ]]; then
     if $autoboot ; then
       _log INFO "Next boot: Target OS /!\\"
-      api_os_chroot grub-install "$disk"
+      api_os_chroot grub-install --verbose "$disk"
     else
-      api_os_chroot grub-install --no-bootsector "$disk"
+      api_os_chroot grub-install --verbose --no-bootsector "$disk"
     fi
   fi
   api_os_chroot update-grub
