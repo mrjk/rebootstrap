@@ -75,16 +75,18 @@ main_app ()
   local commands
 
   # Init CLI: options
-  RESTRAP_DRY=false
-  RESTRAP_FORCE=false
+  RESTRAP_DRY=${RESTRAP_DRY:-false}
+  RESTRAP_FORCE=${RESTRAP_FORCE:-false}
+  RESTRAP_IMPORT=${RESTRAP_IMPORT:-true}
   RESTRAP_CONFIG=${RESTRAP_CONFIG:-$PWD/config.sh}
   local OPTIND o
-  while getopts "t:c:fn" o; do
+  while getopts "t:c:fnp" o; do
     case "${o}" in
         t) RESTRAP_TARGET=$OPTARG ;;
         c) RESTRAP_CONFIG=$OPTARG ;;
         n) RESTRAP_DRY=true ;;
         f) RESTRAP_FORCE=true ;;
+        p) RESTRAP_IMPORT=true ;;
         *) _log ERROR "Unknown option: $o"
             cli__help
             return 1
@@ -806,11 +808,12 @@ api_os_bootloader_target ()
 
   # Import grub config
   local infile=/etc/default/grub
-  if [[ -f "$infile" ]]; then
-    _log INFO "Import $infile"
+  if $RESTRAP_IMPORT && [[ -f "$infile" ]]; then
+    _log INFO "Import default Grub config: $infile"
     _exec cp "$infile" "${_os_chroot}$infile"
     _exec sed -i "s/GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR='$_os_target'/" "${_os_chroot}$infile"
   else
+    _log INFO "Generate default Grub config: $infile"
     if ! ${RESTRAP_DRY:-false}; then
       cat > "${_os_chroot}$infile" <<EOF
 GRUB_DEFAULT=0
@@ -827,7 +830,7 @@ EOF
   # TOFIX: Is this patch still required ?
   local outfile=${_os_chroot}/usr/share/initramfs-tools/hooks/mdadm
   if ! grep -q '^copy_exec /usr/bin/rm .*' "$outfile"; then
-    _log INFO "Patch initramfs hook: $outfile"
+    _log INFO "Patch initramfs mdadm hook: $outfile"
     if ! ${RESTRAP_DRY}; then
       local content=$(tac "$outfile" | \
         awk '!p && /copy_exec/{print "copy_exec /usr/bin/rm /usr/bin"; p=1} 1' | \
@@ -940,14 +943,15 @@ api_os_preconfigure ()
 {
   local infile=
   local outfile=
+  local import=$RESTRAP_IMPORT
 
   # Configure fstab
   outfile=${_os_chroot}/etc/fstab
-  _log INFO "Configure $outfile"
+  _log INFO "Configure fstab: $outfile"
   if ! ${RESTRAP_DRY:-false}; then
     api_os_gen_fstab > "$outfile"
     local i
-    for i in $( grep -Ev '^ *#' "$outfile" | awk '{ print $2}' | grep -v '^/$' ) ; do
+    for i in $( grep -Ev '^ *#' "$outfile" | awk '{ print $2}' | grep '^/' ) ; do
       [[ -d "${_os_chroot}$i" ]] || _exec mkdir -p "${_os_chroot}$i"
     done
   fi
@@ -965,19 +969,24 @@ EOF
 
   # Configure locale
   infile=/etc/default/locale
-  if [[ -f "$infile" ]]; then
-    _log INFO "Import $infile"
+  if $import && [[ -f "$infile" ]]; then
+    _log INFO "Import default locale: $infile"
     _exec cp "$infile" "${_os_chroot}$infile"
 
     infile=/etc/locale.gen
     if [[ -f "$infile" ]]; then
-      _log INFO "Import $infile"
+      _log INFO "Import locales: $infile"
       _exec cp "$infile" "${_os_chroot}$infile"
     fi
   else
-    _log INFO "Configure $infile"
+    _log INFO "Generate default locale: $infile"
     if ! ${RESTRAP_DRY:-false}; then
       echo "LANG=C.UTF-8" > "${_os_chroot}$infile"
+      # LANG=en_US.UTF-8
+
+      infile=/etc/locale.gen
+      _log INFO "Generate locales: $infile"
+      echo "en_US.UTF-8" > "${_os_chroot}$infile"
     fi
   fi
   api_os_chroot locale-gen
@@ -985,13 +994,13 @@ EOF
   # Import resolvers (systemd-resolverd is the choice)
   _log INFO "Import systemd resolved config"
   infile=/etc/resolv.conf
-  if [[ -e "$infile" ]]; then
+  if $import && [[ -e "$infile" ]]; then
     _exec cp --preserve=links "$infile" "${_os_chroot}$infile"
   else
-    _exec ln -s "$infile" "${_os_chroot}$infile"
+    _exec ln -s "/run/systemd/resolve/stub-resolv.conf" "${_os_chroot}$infile"
   fi
   infile=/etc/systemd/resolved.conf.d
-  if [[ -d "$infile/" ]]; then
+  if $import && [[ -d "$infile/" ]]; then
     _exec cp -aT "$infile/" "${_os_chroot}$infile"
   else
     if ! ${RESTRAP_DRY:-false}; then
@@ -1005,34 +1014,56 @@ EOF
   api_os_chroot systemctl enable systemd-resolved
 
   # Import networkd (use systemd if enabled)
+  _log INFO "Enable systemd-networkd"
+  api_os_chroot systemctl disable networking.service
+  api_os_chroot systemctl enable systemd-networkd.service
   infile=/etc/systemd/network
-  _log INFO "Import systemd resolved config"
-  if [[ -d "$infile/" ]]; then
+  if $import && [[ -d "$infile/" ]]; then
+    _log INFO "Import systemd networkd config"
     _exec cp -aT "$infile/" "${_os_chroot}$infile"
-    api_os_chroot systemctl disable networking.service
-    api_os_chroot systemctl enable systemd-networkd.service
+  else
+    infile=/etc/systemd/network/99-default.network
+    _log INFO "Generate default ethernet config: $infile"
+    if ! ${RESTRAP_DRY:-false}; then
+	cat > "${_os_chroot}$infile" << EOF
+[Match]
+Name = en* eth*
+
+[Network]
+DHCP = yes
+
+EOF
+	fi
   fi
 
 
   # Import other convenients stuffs
-  _log INFO "Import /etc/ssh"
-  _exec cp -aT "/etc/ssh" "${_os_chroot}/etc/ssh" || \
-    _log WARN "Import failed (rc=$?)"
+  if $import; then
+    _log INFO "Import /etc/ssh"
+    _exec cp -aT "/etc/ssh" "${_os_chroot}/etc/ssh" || \
+      _log WARN "Import failed (rc=$?)"
+  fi
 
+  if $import; then
   _log INFO "Import /etc/vim/vimrc.local"
   _exec cp "/etc/vim/vimrc.local" "${_os_chroot}/etc/vim/vimrc.local" || \
     _log WARN "Import failed (rc=$?)"
+  fi
 
+  if $import; then
   _log INFO "Import /etc/gitconfig"
   _exec cp "/etc/gitconfig" "${_os_chroot}/etc/gitconfig" || \
     _log WARN "Import failed (rc=$?)"
+  fi
 
   # Import home root
+  if $import; then
   _log INFO "Import root directory (partial import)"
   _exec rsync -av \
 		--include={.config,.profile,.bashrc,.vimrc,.ssh} \
 		--exclude='/.*' \
 		/root/ "${_os_chroot}/root"
+  fi
 
 
   # Import homes directories
@@ -1041,10 +1072,12 @@ EOF
 	#	/homes/ ${_os_chroot}/homes
 
   # Import root password
-  outfile="${_os_chroot}/etc/shadow"
-  infile=$(grep "^root:" /etc/shadow)
-  _log INFO "Import root password"
-  _exec sed -i "s@^root:.*@$infile@" "$outfile"
+  if $import; then
+    outfile="${_os_chroot}/etc/shadow"
+    infile=$(grep "^root:" /etc/shadow)
+    _log INFO "Import root password"
+    _exec sed -i "s@^root:.*@$infile@" "$outfile"
+  fi
 
   # Save the date
   outfile=${_os_chroot}/etc/install-release
@@ -1079,6 +1112,10 @@ api_os_gen_fstab ()
 
 api_os_import ()
 {
+  
+  if ! $RESTRAP_IMPORT; then
+	  return
+  fi
   _log INFO "Import User settings"
   color=${_os_name}
 
