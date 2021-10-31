@@ -111,7 +111,7 @@ main_app ()
 
   # Binary requirements
   local prog
-  for prog in column debootstrap; do
+  for prog in column debootstrap whois; do
     _check_bin $prog || {
       _log ERROR "Command '$prog' must be installed first"
       return 1
@@ -1059,6 +1059,11 @@ EOF
     _exec rm -fv "${_os_chroot}/etc/ssh/ssh_host_"*
     export HOSTNAME=${DEFAULT_HOSTNAME:-$HOSTNAME}
     api_os_chroot dpkg-reconfigure openssh-server
+    if [[ ! -z "$DEFAULT_PASSWD" ]]; then
+      _exec sed -i -r '
+/^#*PermitRootLogin/cPermitRootLogin yes
+/^#*UseDNS/cUseDNS no' "${_os_chroot}/etc/ssh/sshd_config"
+    fi
   fi
 
   # Import ssh_key
