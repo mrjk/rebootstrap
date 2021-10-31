@@ -277,7 +277,11 @@ cli__install ()
   cli__rm
   cli__debootstrap
   cli__configure
-  cli__boot
+  if $RESTRAP_IMPORT; then
+    cli__boot current
+  else
+    cli__boot target
+  fi
 }
 
 cli__debootstrap ()
