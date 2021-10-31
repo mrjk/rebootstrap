@@ -780,7 +780,7 @@ api_os_install_debootstrap ()
   # Debootstrap
   _exec mkdir -p "$debootstrap_cache"
   tree -L 2 -I "sys|proc|dev" "${_os_chroot}" | head -n 50
-  _exec debootstrap \
+  _exec HOSTNAME=${DEFAULT_HOSTNAME:-$HOSTNAME} debootstrap \
     --verbose \
     --cache-dir="$debootstrap_cache" \
     --include="$extra_packages" \
@@ -1052,6 +1052,22 @@ EOF
       _log WARN "Import failed (rc=$?)"
   fi
 
+  # Import ssh_key
+  infile="${_os_chroot}/root/.ssh"
+  if ! ${RESTRAP_DRY:-false} && [[ ! -z "$DEFAULT_SSH_KEY" ]] ; then
+      _log DEBUG "Import ssh key for root user"
+  	_exec mkdir -p "${infile}"
+      echo -e "$DEFAULT_SSH_KEY" >> "${infile}/authorized_keys"
+      _exec chmod 600 "${infile}/authorized_keys"
+  fi
+	
+  # Set hostname
+  #if [[ ! -z "$DEFAULT_HOSTNAME" ]]; then
+  #  _log DEBUG "Set hostname: $DEFAULT_HOSTNAME"
+  #  echo 
+  #fi
+ 
+
   if $import; then
   _log INFO "Import /etc/vim/vimrc.local"
   _exec cp "/etc/vim/vimrc.local" "${_os_chroot}/etc/vim/vimrc.local" || \
@@ -1080,8 +1096,13 @@ EOF
 	#	/homes/ ${_os_chroot}/homes
 
   # Import root password
-  if $import; then
-    outfile="${_os_chroot}/etc/shadow"
+  outfile="${_os_chroot}/etc/shadow"
+  if [[ ! -z "$DEFAULT_PASSWD" ]]; then
+    _log INFO "Generate root password"
+    local pass
+    pass=$(mkpasswd --method=SHA-512 --stdin <<< "$DEFAULT_PASSWD" )
+    _exec sed -i "s@^root:.*@root:$pass:18931:0:99999:7:::@" "$outfile"
+  elif $import; then
     infile=$(grep "^root:" /etc/shadow)
     _log INFO "Import root password"
     _exec sed -i "s@^root:.*@$infile@" "$outfile"
