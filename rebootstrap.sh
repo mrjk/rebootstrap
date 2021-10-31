@@ -80,13 +80,13 @@ main_app ()
   RESTRAP_IMPORT=${RESTRAP_IMPORT:-true}
   RESTRAP_CONFIG=${RESTRAP_CONFIG:-$PWD/config.sh}
   local OPTIND o
-  while getopts "t:c:fnp" o; do
+  while getopts "t:c:fnP" o; do
     case "${o}" in
         t) RESTRAP_TARGET=$OPTARG ;;
         c) RESTRAP_CONFIG=$OPTARG ;;
         n) RESTRAP_DRY=true ;;
         f) RESTRAP_FORCE=true ;;
-        p) RESTRAP_IMPORT=true ;;
+        P) RESTRAP_IMPORT=false ;;
         *) _log ERROR "Unknown option: $o"
             cli__help
             return 1
@@ -327,7 +327,9 @@ cli__boot ()
   esac
 
   api_os_bootloader_target $boot_target
-  api_os_bootloader_host $boot_current
+  if $RESTRAP_IMPORT; then
+    api_os_bootloader_host $boot_current
+  fi
 
   case "$target" in
     current)
@@ -981,12 +983,17 @@ EOF
   else
     _log INFO "Generate default locale: $infile"
     if ! ${RESTRAP_DRY:-false}; then
-      echo "LANG=C.UTF-8" > "${_os_chroot}$infile"
+      echo "LANG=en_US.UTF-8" > "${_os_chroot}$infile"
+      echo "LANGUAGE=en" >> "${_os_chroot}$infile"
       # LANG=en_US.UTF-8
 
       infile=/etc/locale.gen
       _log INFO "Generate locales: $infile"
-      echo "en_US.UTF-8" > "${_os_chroot}$infile"
+      echo "en_US.UTF-8 UTF-8" > "${_os_chroot}$infile"
+      # echo "fr_FR.UTF-8 UTF-8" >> "${_os_chroot}$infile"
+      # echo "es_ES.UTF-8 UTF-8" >> "${_os_chroot}$infile"
+      # echo "de_DE.UTF-8 UTF-8" >> "${_os_chroot}$infile"
+      # echo "it_IT.UTF-8 UTF-8" >> "${_os_chroot}$infile"
     fi
   fi
   api_os_chroot locale-gen
@@ -997,7 +1004,7 @@ EOF
   if $import && [[ -e "$infile" ]]; then
     _exec cp --preserve=links "$infile" "${_os_chroot}$infile"
   else
-    _exec ln -s "/run/systemd/resolve/stub-resolv.conf" "${_os_chroot}$infile"
+    _exec ln -fs "/run/systemd/resolve/stub-resolv.conf" "${_os_chroot}$infile"
   fi
   infile=/etc/systemd/resolved.conf.d
   if $import && [[ -d "$infile/" ]]; then
@@ -1104,9 +1111,11 @@ api_os_gen_fstab ()
     column -t
 
   # Keep existing mounts
-  echo "# Imported mounts"
-  grep -E -v "#.*|/ |/boot |/tmp |/usr |/bin |/sbin |/var |/var/log |/var/lib " /etc/fstab | \
-    sed '/^$/d' | column -t
+  if $RESTRAP_IMPORT; then
+    echo "# Imported mounts"
+    grep -E -v "#.*|/ |/boot |/tmp |/usr |/bin |/sbin |/var |/var/log |/var/lib " /etc/fstab | \
+      sed '/^$/d' | column -t
+  fi
 }
 
 

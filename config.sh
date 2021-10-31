@@ -1,16 +1,15 @@
 # Rebootstrap configuration example
 
-DEFAULT_VG=vg_fast
+DEFAULT_VG=vg_safe
 DEFAULT_OS=bullseye
 DEFAULT_GRUB=mbr
 DEFAULT_PREFIX=debian
-#DEFAULT_BOOT=current
 DEFAULT_BOOT=none
 
 OS_MAP="
 #name   os        grub            vg
-green   bullseye  mbr,/dev/sda2    vg_fast
-blue    bullseye  mbr,/dev/sda3    vg_fast
+green   bullseye  mbr,/dev/sda2    vg_safe
+blue    bullseye  mbr,/dev/sda3    vg_safe
 "
 
 PART_MAP="
