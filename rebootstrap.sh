@@ -780,7 +780,7 @@ api_os_install_debootstrap ()
   # Debootstrap
   _exec mkdir -p "$debootstrap_cache"
   tree -L 2 -I "sys|proc|dev" "${_os_chroot}" | head -n 50
-  _exec HOSTNAME=${DEFAULT_HOSTNAME:-$HOSTNAME} debootstrap \
+  _exec debootstrap \
     --verbose \
     --cache-dir="$debootstrap_cache" \
     --include="$extra_packages" \
@@ -1050,22 +1050,31 @@ EOF
     _log INFO "Import /etc/ssh"
     _exec cp -aT "/etc/ssh" "${_os_chroot}/etc/ssh" || \
       _log WARN "Import failed (rc=$?)"
+  else
+    _log INFO "Import /etc/ssh"
+    _exec rm -fv "${_os_chroot}/etc/ssh/ssh_host_"*
+    export HOSTNAME=${DEFAULT_HOSTNAME:-$HOSTNAME}
+    api_os_chroot dpkg-reconfigure openssh-server
   fi
 
   # Import ssh_key
-  infile="${_os_chroot}/root/.ssh"
-  if ! ${RESTRAP_DRY:-false} && [[ ! -z "$DEFAULT_SSH_KEY" ]] ; then
-      _log DEBUG "Import ssh key for root user"
-  	_exec mkdir -p "${infile}"
+  if [[ ! -z "$DEFAULT_SSH_KEY" ]] ; then
+    infile="${_os_chroot}/root/.ssh"
+    _log DEBUG "Import ssh key for root user"
+    if ! ${RESTRAP_DRY:-false}; then
+      _exec mkdir -p "${infile}"
       echo -e "$DEFAULT_SSH_KEY" >> "${infile}/authorized_keys"
       _exec chmod 600 "${infile}/authorized_keys"
+    fi
   fi
 	
   # Set hostname
-  #if [[ ! -z "$DEFAULT_HOSTNAME" ]]; then
-  #  _log DEBUG "Set hostname: $DEFAULT_HOSTNAME"
-  #  echo 
-  #fi
+  if [[ ! -z "$DEFAULT_HOSTNAME" ]]; then
+    _log DEBUG "Set hostname: $DEFAULT_HOSTNAME"
+    if ! ${RESTRAP_DRY:-false}; then
+    	echo "$DEFAULT_HOSTNAME" > "${_os_chroot}/etc/hostname"
+    fi
+  fi
  
 
   if $import; then
@@ -1110,7 +1119,7 @@ EOF
 
   # Save the date
   outfile=${_os_chroot}/etc/install-release
-  _log INFO "Configure $outfile"
+  _log INFO "Generate $outfile file"
   if ! ${RESTRAP_DRY:-false}; then
       cat > "$outfile" <<EOF
 INSTALL_DATE="$(date --iso-8601=seconds)"
