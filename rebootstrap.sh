@@ -98,6 +98,13 @@ main_app ()
   # Init config
   init_config
 
+  # Fetch target name
+  local target_name=${RESTRAP_TARGET:-}
+  if [[ -z "${target_name}" ]]; then
+    local target_name=${1:-UNSET_TARGET}
+    shift 1 || true
+  fi
+
   # Init CLI: arguments
   local cmd=${1:-help}
   shift 1 || true
@@ -119,14 +126,7 @@ main_app ()
   done
 
   # Commands with targets
-  local target_name=${RESTRAP_TARGET:-}
-  if [[ -z "${target_name}" ]]; then
-    local target_name=${1:-UNSET_TARGET}
-    shift 1 || true
-  fi
   local args=${*:-}
-
-  # Init user config
   init_target "$target_name"
   if grep -q "$cmd" <<< "$commands"; then
     "cli__$cmd" "$args"
@@ -151,13 +151,21 @@ cli__help ()
 
   echo "${0##*/} is a tool to do blue/green Debian installation."
   echo ""
-  echo "usage: ${0##*/} <COMMAND> <TARGET> [<ARGS>]"
+  echo "usage: ${0##*/} [<OPTIONS>] [<TARGET>] <COMMAND> [<ARGS>]"
   echo "       ${0##*/} help"
   echo ""
   echo "workflow:"
-  echo "  install = format -> debootstrap -> bootloader -> configure"
+  echo "  install = rm -> debootstrap -> bootloader -> configure"
+  echo "  Use -n drymode to check what will happen"
+  echo "  Use -P to boot on the next os"
   echo ""
-
+  echo "OPTIONS:"
+  echo "  -t) Target to work with (RESTRAP_TARGET=)"
+  echo "  -c) Config file (RESTRAP_CONFIG=config.sh)"
+  echo "  -n) Drymode (RESTRAP_DRY=true)"
+  echo "  -f) Do not ask for confirmation (RESTRAP_FORCE=true)"
+  echo "  -P) Boot on the target OS (RESTRAP_IMPORT=false)"
+  echo ""
   echo "COMMANDS:"
   declare -f | grep -E -A 2 '^cli__[a-z0-9_]* \(\)' \
     | sed '/{/d;/--/d;s/cli__/  /;s/ ()/,/;s/";$//;s/^  *: "//;' \
@@ -232,7 +240,7 @@ cli__format ()
 
 cli__rm ()
 {
-  : "Remove all files of the target, without umounts"
+  : "Remove all files of the target without umounts (rm -rf)"
   _ask_to_continue "WARN    : This will 'rm -rf ${_os_chroot}', are you sure?" || return
 
   api_umount_sys
@@ -306,7 +314,7 @@ _cli__boot_usage="none|current|target"
 
 cli__boot ()
 {
-  : "Select boot system"
+  : "Select boot system (current|target|help)"
   #_dump_vars
 
   local target=${1:-$DEFAULT_BOOT}
@@ -314,11 +322,11 @@ cli__boot ()
   local boot_current=false
   case "$target" in
     current)
-      _ask_to_continue "Install grub in MBR for '$target' os in '$_os_grub_device' to '$_os_grub_partition' ?"
+      _ask_to_continue "Install grub in MBR for '$target' os in '$_os_grub_device' to '$_os_grub_partition' ifor next reboot?"
       boot_current=true
       ;;
     target)
-      _ask_to_continue "Install grub in MBR for '$target' os in '$_os_grub_device' to '$_os_grub_partition' ?"
+      _ask_to_continue "Install grub in MBR for '$target' os in '$_os_grub_device' to '$_os_grub_partition' for next reboot?"
       boot_target=true
       ;;
     none) 
@@ -835,6 +843,7 @@ EOF
 
   # Patch missing rm binary in initamfs
   # TOFIX: Is this patch still required ?
+  # Seems not on bullseyes at least ...
   local outfile=${_os_chroot}/usr/share/initramfs-tools/hooks/mdadm
   if ! grep -q '^copy_exec /usr/bin/rm .*' "$outfile"; then
     _log INFO "Patch initramfs mdadm hook: $outfile"
