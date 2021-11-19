@@ -21,8 +21,8 @@ PART_MAP="
 /         -          ext4    5G    -
 /boot     -          ext4    -     -
 /var      -          ext4    1G    -
-/var/lib  -          ext4    2G    -
+/var/lib  -          ext4    4G    -
 /var/log  -          ext4    2G    -
-/tmp/     -          ext4    2G
+/tmp/     -          ext4    1G
 swap      -          swap    4G
 "
